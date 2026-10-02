@@ -1,0 +1,6 @@
+# runtime cache: settings, headline history, brief snapshots
+data/
+__pycache__/
+*.pyc
+.env
+.DS_Store

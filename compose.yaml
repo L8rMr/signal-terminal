@@ -1,0 +1,24 @@
+name: market-terminal
+services:
+  terminal:
+    build: .
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      POLL_SECONDS: "30"
+      SEC_USER_AGENT: "${SEC_USER_AGENT:-Signal Personal Terminal contact@example.com}"
+      # Optional: set to add a Claude-written analyst note to the Daily Market Brief.
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
+      BRIEF_MODEL: "${BRIEF_MODEL:-claude-opus-5}"
+    volumes:
+      - news-cache:/data
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  news-cache:

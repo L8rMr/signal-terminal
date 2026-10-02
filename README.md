@@ -1,0 +1,97 @@
+# Signal Terminal
+
+Signal Terminal is a self-hosted market terminal that runs in one Docker container and is served on localhost. It polls public RSS feeds for headlines, pulls prices from Yahoo Finance, economic series from FRED and filings from SEC EDGAR, and combines them into a rules-based daily market brief with a regime score, a cross-asset tape, sector rotation and a catalyst calendar. No API key or paid data subscription is needed for the core features.
+
+![Signal Terminal daily market brief](docs/screenshot.png)
+
+The screenshot shows live public market data from 2 October 2026. The app holds no account or trade data.
+
+## What it shows
+
+Each view has a short function code that can be typed into the command line at the top.
+
+| Code | View |
+| --- | --- |
+| `BRIEF` | Daily market brief: posture, regime score, what changed since the last brief, price tape with 30-day sparklines, playbook, catalysts, risks, headlines. |
+| `ANLY` | The analytics behind the brief: regime components, breadth, economic data table, Fed pricing, index levels, geopolitics by region, sector rotation, watchlist relative strength. |
+| `TOP` | Headlines ranked by a heuristic score (recency, event type, tickers mentioned, market language). |
+| `EDGAR` | Company lookup by US ticker or CIK: profile, ratios, annual and quarterly XBRL facts, five-year history, recent filings, related news. |
+| `GMM` | Cross-asset movers with 1-day, 5-day and 1-month changes across equities, rates, FX, commodities, crypto and volatility. |
+| `BTMM` | Fed funds, SOFR and 2/10/30-year Treasury yields, a yield-curve chart and an economic calendar. |
+| `FRED` | Twelve transformed economic series covering inflation, labor, growth, demand and financial conditions. |
+| `MON` | Editable watchlist with last price, daily move, 5-day relative strength against the S&P 500 and trend state. |
+| `ALRT` | Alert rules on keywords, the watchlist, or a market condition from the brief (for example VIX above 20). |
+| `SET` | Feed list with enable/disable controls and connection health. |
+
+Typing a US ticker such as `AAPL` opens company research. Selecting a headline opens a built-in reader where the publisher allows extraction.
+
+The brief (`brief.py`) is rules-based. It scores trend, momentum, volatility, credit, breadth, participation, rotation, rate shock and the dollar, merges near-duplicate headlines, and keeps one snapshot per day so it can report what changed. It is research output, not investment advice.
+
+## Run it
+
+Requires Docker with Compose and an internet connection.
+
+```bash
+docker compose up -d --build
+```
+
+Open <http://localhost:8080>. The port is bound to 127.0.0.1 only. Settings, alert rules, headline history and brief snapshots are stored in the `news-cache` volume and survive `docker compose down`.
+
+To run without Docker (Python 3.10 or later):
+
+```bash
+pip install -r requirements.txt
+python server.py
+```
+
+Run this way, the server listens on all interfaces, not just localhost, and writes its cache to `./data`.
+
+## Configuration
+
+Set these in the shell or in a `.env` file next to `compose.yaml`. All are optional.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SEC_USER_AGENT` | placeholder | Name and contact email sent to SEC EDGAR, which asks automated clients to identify themselves. |
+| `ANTHROPIC_API_KEY` | unset | Adds a Claude-written analyst note to the brief. Each note is a paid API call. Without a key nothing is sent to Anthropic. |
+| `BRIEF_MODEL` | `claude-opus-5` | Model used for the analyst note. |
+| `POLL_SECONDS` | `30` | Feed polling interval, minimum 15. Set in `compose.yaml`. |
+| `DATA_DIR` | `/data` in Docker | Cache directory. |
+
+Feeds, the watchlist and alert rules are edited in the app.
+
+## Data sources
+
+- Headlines: public RSS and Atom feeds (CNBC, BBC, Federal Reserve, Yahoo Finance, MarketWatch and others), polled every 30 seconds and pushed to the browser over server-sent events.
+- Prices: Yahoo Finance chart endpoint, fetched server-side and cached for five minutes per symbol.
+- Economic data and rates: FRED public CSV downloads.
+- Company data: SEC submissions and company-facts APIs, cached for 15 minutes and limited to four requests per second.
+- Charts and the economic calendar: TradingView embed widgets, loaded by the browser.
+
+## Known limitations
+
+- RSS is not a real-time newswire. Publisher delay comes on top of the polling interval.
+- The Yahoo Finance endpoint is unofficial and can be rate-limited or changed without notice. When it fails, the brief and movers views report that market data is unavailable.
+- TradingView widgets depend on TradingView's availability and symbol entitlements.
+- The relevance score and regime score are hand-tuned heuristics. They have not been backtested.
+- The catalyst calendar includes a hardcoded list of Federal Reserve and BLS dates in `brief.py`, which has to be updated by hand.
+- The article reader fails on paywalled pages and unusual markup.
+- There are no automated tests.
+- Single user, no login. Settings writes require a session token and a localhost Host header, which is enough for local use and not for exposure to the internet.
+- The Benzinga stream client is implemented but has not been run against a live subscription. The settings dialog has no field for the key.
+- Headlines are capped at the latest 600 and alerts at 100.
+- `static/app.js` is one 300-line file without a build step or comments.
+
+## Project structure
+
+```
+server.py          HTTP server, feed polling, price/FRED/SEC fetchers, settings, SSE
+brief.py           daily market brief engine and optional analyst note
+static/
+  index.html       single page with all views
+  app.js           client logic
+  *.css            styles per view
+Dockerfile         python:3.13-slim, non-root user
+compose.yaml       localhost-only port, read-only filesystem, cache volume
+requirements.txt
+```
