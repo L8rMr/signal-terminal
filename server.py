@@ -5,6 +5,7 @@ from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from html.parser import HTMLParser
 from pathlib import Path
 import brief as brief_engine
+import schwab
 
 ROOT = Path(__file__).parent
 INTERVAL = max(15, int(os.getenv('POLL_SECONDS', '30')))
@@ -664,8 +665,22 @@ def economy_loop():
 def public_settings():
     return {k:copy.deepcopy(config[k]) for k in ('revision','feeds','watchlist','rules')} | {'benzinga_configured':bool(config['benzinga_key'])}
 
+OWNER_COOKIE='signal_owner'
+owner_key=''
+
+def load_owner_key():
+    """Random owner key kept in the data volume. Whoever holds it gets the owner view
+    (live Schwab quotes, editing) on a public hostname; localhost is always owner."""
+    global owner_key
+    path=DATA/'owner_key'
+    try: owner_key=path.read_text().strip()
+    except OSError: owner_key=''
+    if len(owner_key)<32:
+        owner_key=secrets.token_urlsafe(32);path.write_text(owner_key);os.chmod(path,0o600)
+
 def load():
     DATA.mkdir(parents=True,exist_ok=True)
+    load_owner_key()
     migrated=False
     for filename in ('settings.json','news.json'):
         try:
@@ -822,14 +837,53 @@ class Handler(SimpleHTTPRequestHandler):
         except ValueError: return ''
     def local_request(self): return self.request_host() in ('localhost','127.0.0.1','::1')
     def public_request(self): return self.request_host() in PUBLIC_HOSTS
+    def owner_cookie(self):
+        for part in self.headers.get('Cookie','').split(';'):
+            name,_,value=part.strip().partition('=')
+            if name==OWNER_COOKIE and owner_key and secrets.compare_digest(value.encode(),owner_key.encode()): return True
+        return False
+    def is_owner(self): return self.local_request() or (self.public_request() and self.owner_cookie())
+    def json_body(self,limit=50000):
+        length=int(self.headers.get('Content-Length','0'))
+        if not 0<length<=limit: raise ValueError('Request too large or empty.')
+        body=json.loads(self.rfile.read(length))
+        if not isinstance(body,dict): raise ValueError('Expected a JSON object.')
+        return body
+    def private_reply(self,obj,status=200,cookie=None):
+        payload=json.dumps(obj).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','private, no-store')
+        if cookie: self.send_header('Set-Cookie',cookie)
+        self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+    def serve_page(self,name):
+        try: payload=(ROOT/'static'/name).read_bytes()
+        except OSError: return self.reply({'error':'Not found.'},404)
+        self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     def end_headers(self):
         self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer');self.send_header('X-Frame-Options','DENY');super().end_headers()
     def reply(self,obj,status=200):
         payload=json.dumps(obj).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     def do_POST(self):
-        if self.public_request(): return self.reply({'error':'This is a read-only public view. Run your own copy to change settings.'},403)
-        if not self.local_request() or not secrets.compare_digest(self.headers.get('X-Signal-Token',''),csrf): return self.reply({'error':'Reload Signal before saving settings.'},403)
+        path=urllib.parse.urlparse(self.path).path
+        if path=='/api/owner/login' and (self.public_request() or self.local_request()):
+            try: key=str(self.json_body(500).get('key',''))
+            except (ValueError,TypeError): key=''
+            if owner_key and secrets.compare_digest(key.encode(),owner_key.encode()):
+                return self.private_reply({'ok':True},cookie=f'{OWNER_COOKIE}={owner_key}; Path=/; Max-Age=31536000; HttpOnly; Secure; SameSite=Lax')
+            time.sleep(1);return self.private_reply({'error':'That owner key is not valid.'},403)
+        if path=='/api/owner/logout':
+            return self.private_reply({'ok':True},cookie=f'{OWNER_COOKIE}=; Path=/; Max-Age=0; HttpOnly; Secure; SameSite=Lax')
+        if self.public_request() and not self.owner_cookie(): return self.reply({'error':'This is a read-only public view. Run your own copy to change settings.'},403)
+        if not self.is_owner() or not secrets.compare_digest(self.headers.get('X-Signal-Token',''),csrf): return self.reply({'error':'Reload Signal before saving settings.'},403)
         if self.headers.get('Content-Type','').split(';')[0]!='application/json': return self.reply({'error':'JSON required.'},415)
+        if path.startswith('/api/owner/schwab/'):
+            if not self.local_request(): return self.reply({'error':'Schwab setup is only available on the host PC.'},403)
+            try:
+                body=self.json_body()
+                if path=='/api/owner/schwab/keys': schwab.set_keys(body.get('app_key'),body.get('app_secret'),body.get('callback'))
+                elif path=='/api/owner/schwab/connect': schwab.connect(body.get('url'))
+                else: return self.reply({'error':'Not found.'},404)
+                return self.private_reply({'schwab':schwab.status()})
+            except (ValueError,TypeError) as exc: return self.private_reply({'error':str(exc)[:240]},400)
+            except (urllib.error.URLError,TimeoutError,OSError): return self.private_reply({'error':'Could not reach Schwab. Try again.'},503)
         if self.path=='/api/briefing/refresh':
             with condition:
                 old_updated=state.get('updated');old_ids={a['id'] for a in state['articles']}
@@ -868,8 +922,31 @@ class Handler(SimpleHTTPRequestHandler):
         public=not self.local_request() and self.public_request()
         if not self.local_request() and not public: return self.reply({'error':'Local access only.'},403)
         path=urllib.parse.urlparse(self.path).path
+        owner=self.is_owner()
         if path=='/api/settings':
-            with condition: self.reply(public_settings()|({'read_only':True} if public else {'csrf':csrf}))
+            with condition: self.reply(public_settings()|({'csrf':csrf,'owner':True} if owner else {'read_only':True}))
+        elif path=='/owner':
+            if not self.local_request(): return self.reply({'error':'Not found.'},404)
+            self.serve_page('owner.html')
+        elif path=='/login': self.serve_page('login.html')
+        elif path=='/api/owner/status':
+            if not owner: return self.private_reply({'owner':False})
+            st=schwab.status();self.private_reply({'owner':True,'local':self.local_request(),'schwab':{k:st[k] for k in ('configured','connected','refresh_expires')}})
+        elif path=='/api/owner/setup':
+            if not self.local_request(): return self.reply({'error':'Not found.'},404)
+            hosts=sorted(PUBLIC_HOSTS)
+            self.private_reply({'owner_link':(f'https://{hosts[0]}/login#key={owner_key}' if hosts else None),'owner_key':owner_key,'schwab':schwab.status(),'csrf':csrf})
+        elif path=='/api/owner/schwab/authorize':
+            if not self.local_request(): return self.reply({'error':'Not found.'},404)
+            try: self.private_reply({'url':schwab.authorize_url()})
+            except ValueError as exc: self.private_reply({'error':str(exc)},400)
+        elif path=='/api/live/quotes':
+            # Owner only: Schwab data is licensed for the account holder's personal use.
+            if not owner: return self.private_reply({'error':'Live quotes are only available to the owner.'},403)
+            codes=[c for c in urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('codes',[''])[0].split(',') if c][:80]
+            try: self.private_reply({'source':'Schwab','quotes':schwab.live_quotes(codes),'at':int(time.time())})
+            except LookupError as exc: self.private_reply({'error':str(exc),'quotes':{}},503)
+            except (urllib.error.URLError,TimeoutError,OSError,ValueError): self.private_reply({'error':'Schwab could not be reached.','quotes':{}},503)
         elif path=='/api/briefing': self.reply(build_briefing())
         elif path=='/api/markets':
             try: self.reply(market_snapshot())

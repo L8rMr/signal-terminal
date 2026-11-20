@@ -62,6 +62,17 @@ Pushing to `main` deploys within about a minute. `PUBLIC_HOSTS=signal.alenlvovic
 docker compose -f deploy/compose.public.yaml up -d
 ```
 
+## Owner view and live Schwab quotes
+
+The public copy runs on delayed Yahoo Finance prices. The owner can switch on live quotes from the Schwab Trader API for themselves only:
+
+- `http://localhost:8098/owner` (only reachable on the host PC) shows a private owner link and a Schwab connect form. Keys and tokens are stored in the data volume (`schwab.json`), never in the repo.
+- Opening the owner link once on a phone or laptop sets an `HttpOnly` owner cookie. The key travels in the URL fragment, so it never reaches the server logs.
+- With the cookie, `static/live.js` overlays Schwab last prices on the price tape and watchlist every two seconds and shows a `LIVE · SCHWAB` badge. Visitors get `{"owner": false}` from `/api/owner/status` and a 403 from `/api/live/quotes`, so their browsers never receive Schwab data.
+- Live quotes have their own cache; the shared brief, movers and watchlist views keep using delayed data, so nothing the public sees is derived from Schwab.
+
+Why owner-only: Schwab's account agreements license market data for the account holder's personal, non-commercial use and forbid redistributing it. An individual Trader API app is not approved to serve other users. Schwab sign-in lasts 7 days; the badge turns amber when it needs renewing.
+
 ## Configuration
 
 Set these in the shell or in a `.env` file next to `compose.yaml`. All are optional.
@@ -104,9 +115,13 @@ Feeds, the watchlist and alert rules are edited in the app.
 ```
 server.py          HTTP server, feed polling, price/FRED/SEC fetchers, settings, SSE
 brief.py           daily market brief engine and optional analyst note
+schwab.py          owner-only Schwab Trader API client (OAuth, token refresh, quotes)
 static/
   index.html       single page with all views
   app.js           client logic
+  live.js          owner-only live quote overlay
+  login.html       owner sign-in (via owner link)
+  owner.html       host-only setup: owner link, Schwab connection
   *.css            styles per view
 deploy/
   compose.public.yaml  auto-updating public deployment (signal.alenlvovich.com)

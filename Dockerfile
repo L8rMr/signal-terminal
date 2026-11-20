@@ -2,7 +2,7 @@ FROM python:3.13-slim
 WORKDIR /app
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY server.py brief.py ./
+COPY *.py ./
 COPY static ./static
 RUN useradd --uid 10001 --create-home terminal && mkdir /data && chown terminal:terminal /data
 USER terminal

@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex">
+<title>Signal | Owner setup</title><link rel="icon" href="/favicon.svg">
+<style>
+:root{color-scheme:dark;--bg:#090c10;--panel:#101419;--line:#29313a;--muted:#8c98a7;--text:#e2e7ed;--orange:#ffa23b;--green:#64d5ac;--red:#ff7a6b}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.55 Arial,Helvetica,sans-serif;padding:28px 16px}
+main{max-width:760px;margin:auto;display:grid;gap:18px}h1{font:900 26px Arial;color:var(--orange);margin:0}h1 small{display:block;font:12px monospace;color:var(--muted);letter-spacing:2px}
+section{border:1px solid var(--line);background:var(--panel)}.head{padding:12px 16px;border-bottom:1px solid var(--line);font:700 14px monospace;background:#191f27;display:flex;justify-content:space-between;gap:10px}.head span{color:var(--orange);margin-right:10px}
+.body{padding:16px;display:grid;gap:12px}p{margin:0;color:#b5bfcb}label{font:12px monospace;color:var(--muted)}
+input{width:100%;background:#0b0e12;border:1px solid var(--line);color:var(--text);padding:9px;font:13px monospace}
+button{background:#201b13;border:1px solid var(--orange);color:var(--orange);padding:9px 14px;font:700 12px monospace;cursor:pointer;justify-self:start}
+code{font:12px monospace;background:#0b0e12;border:1px solid var(--line);padding:8px;display:block;word-break:break-all}
+.pill{font:11px monospace;padding:3px 8px;border:1px solid}.on{color:var(--green);border-color:var(--green)}.off{color:var(--red);border-color:var(--red)}
+.msg{font:12px monospace;min-height:1.4em}.msg.err{color:var(--red)}.msg.ok{color:var(--green)}ol{margin:0;padding-left:20px;color:#b5bfcb}li{margin:4px 0}
+.row{display:flex;gap:10px;flex-wrap:wrap}.row>*{flex:1;min-width:200px}
+</style></head><body><main>
+<h1>SIGNAL<small>OWNER SETUP · THIS PAGE ONLY OPENS ON THE HOST PC</small></h1>
+
+<section><div class="head"><div><span>01</span>YOUR OWNER LINK</div></div><div class="body">
+<p>Open this link once on each phone or computer you use. It signs that browser in as the owner on the public site: live Schwab quotes and editing. Everyone else keeps the delayed, read-only view. Keep it private, like a password.</p>
+<code id="link">…</code><div class="row" style="flex:0"><button id="copy">COPY LINK</button></div><div class="msg" id="copymsg"></div>
+</div></section>
+
+<section><div class="head"><div><span>02</span>SCHWAB CONNECTION</div><b id="pill" class="pill off">…</b></div><div class="body">
+<p id="statusline"></p>
+<details id="keys"><summary style="cursor:pointer;font:12px monospace;color:var(--muted)">APP KEY &amp; SECRET (from developer.schwab.com → Dashboard → Apps)</summary>
+<form id="keysform" class="body" style="padding:12px 0 0">
+<div class="row"><div><label for="ak">APP KEY</label><input id="ak" autocomplete="off" required></div><div><label for="as">SECRET</label><input id="as" type="password" autocomplete="off" required></div></div>
+<div><label for="cb">CALLBACK URL (must match your Schwab app exactly)</label><input id="cb" value="https://127.0.0.1"></div>
+<button>SAVE KEYS</button></form></details>
+<ol><li>Click <b>Open Schwab sign-in</b> and log in with your <b>brokerage</b> login (schwab.com / thinkorswim), then approve.</li>
+<li>Schwab sends you to a page at <code style="display:inline;padding:1px 4px">https://127.0.0.1/?code=…</code> that won't load. That's expected.</li>
+<li>Within 30 seconds, copy that whole address from the address bar, paste it below and click <b>Connect</b>.</li></ol>
+<button id="auth">OPEN SCHWAB SIGN-IN</button>
+<form id="connform" class="body" style="padding:0"><label for="ru">ADDRESS SCHWAB SENT YOU TO</label><input id="ru" autocomplete="off" placeholder="https://127.0.0.1/?code=…" required><button>CONNECT</button></form>
+<div class="msg" id="smsg"></div>
+<p style="font:12px monospace;color:var(--muted)">Schwab requires signing in again every 7 days. The terminal's badge turns amber when it's time.</p>
+</div></section>
+<p style="font:12px monospace;color:var(--muted)">Why owner-only: Schwab licenses API market data for the account holder's personal use, so the public site never receives it. <a href="/" style="color:var(--orange)">Back to the terminal</a></p>
+</main>
+<script>
+const $=s=>document.querySelector(s);let csrf='';
+function show(s){
+  const st=s.schwab;$('#pill').textContent=st.connected?'CONNECTED':st.configured?'NOT SIGNED IN':'NO KEYS';$('#pill').className='pill '+(st.connected?'on':'off');
+  $('#statusline').textContent=st.connected?`Connected. Sign-in good until ${new Date(st.refresh_expires*1000).toLocaleString()}.`:st.configured?'Keys saved. Sign in to Schwab to connect.':'Save your Schwab App Key and Secret first.';
+  if(st.error)$('#statusline').textContent+=' Last error: '+st.error;
+  $('#keys').open=!st.configured;$('#cb').value=st.callback||'https://127.0.0.1';
+}
+async function load(){const s=await fetch('/api/owner/setup',{cache:'no-store'}).then(r=>r.json());csrf=s.csrf;$('#link').textContent=s.owner_link||('Owner key: '+s.owner_key);show(s)}
+async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Signal-Token':csrf},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw new Error(v.error||'Failed');return v}
+function say(t,ok){$('#smsg').textContent=t;$('#smsg').className='msg '+(ok?'ok':'err')}
+$('#copy').onclick=async()=>{await navigator.clipboard.writeText($('#link').textContent);$('#copymsg').textContent='Copied.';$('#copymsg').className='msg ok'};
+$('#keysform').onsubmit=async e=>{e.preventDefault();try{show(await post('/api/owner/schwab/keys',{app_key:$('#ak').value,app_secret:$('#as').value,callback:$('#cb').value}));$('#as').value='';say('Keys saved. Now sign in.',true)}catch(err){say(err.message)}};
+$('#auth').onclick=async()=>{const v=await fetch('/api/owner/schwab/authorize').then(r=>r.json());if(v.error)return say(v.error);window.open(v.url,'_blank','noopener');say('Schwab sign-in opened in a new tab.',true)};
+$('#connform').onsubmit=async e=>{e.preventDefault();say('Connecting…',true);try{show(await post('/api/owner/schwab/connect',{url:$('#ru').value}));$('#ru').value='';say('Connected. Open the terminal: the badge should read LIVE · SCHWAB.',true)}catch(err){say(err.message)}};
+load();
+</script></body></html>

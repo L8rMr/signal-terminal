@@ -46,3 +46,15 @@ nav button{padding:13px 16px}
 body.read-only .demo-badge{display:inline-block}
 body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{display:none}
 @media(max-width:600px){body.read-only .demo-badge{font-size:10px;padding:4px 6px}}
+
+/* Owner view: live Schwab quotes (live.js). Only rendered for the owner. */
+.live-badge{display:inline-block;font:11px monospace;letter-spacing:.6px;padding:5px 9px;border:1px solid;white-space:nowrap;text-decoration:none}
+.live-badge.on{color:var(--green);border-color:#2f6b57;background:#10221c}
+.live-badge.on::first-letter{animation:livepulse 1.6s ease-in-out infinite}
+.live-badge.warn{color:var(--orange);border-color:#55503b;background:#201b13}
+@keyframes livepulse{50%{opacity:.25}}
+.tape-tile.live strong::after,.watch-row.live .watch-stats b::after{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--green);margin-left:6px;vertical-align:middle}
+.tick-up{animation:tickup .9s ease-out}.tick-down{animation:tickdown .9s ease-out}
+@keyframes tickup{0%{background:rgba(100,213,172,.28)}100%{background:transparent}}
+@keyframes tickdown{0%{background:rgba(255,110,90,.28)}100%{background:transparent}}
+@media(prefers-reduced-motion:reduce){.tick-up,.tick-down,.live-badge.on::first-letter{animation:none}}
