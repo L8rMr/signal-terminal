@@ -36,22 +36,10 @@ code{font:12px monospace;background:#0b0e12;border:1px solid var(--line);padding
 <div class="msg" id="smsg"></div>
 <p style="font:12px monospace;color:var(--muted)">Schwab requires signing in again every 7 days. The terminal's badge turns amber when it's time.</p>
 </div></section>
+<section><div class="head"><div><span>03</span>FRED ECONOMIC DATA</div><b id="fpill" class="pill off">…</b></div><div class="body">
+<p id="fredline">FRED blocks plain downloads from some home networks. A free API key makes the economic dashboard reliable: sign up at <a href="https://fredaccount.stlouisfed.org/apikeys" target="_blank" rel="noopener" style="color:var(--orange)">fredaccount.stlouisfed.org/apikeys</a>, then paste the 32-character key here.</p>
+<form id="fredform" class="row"><div><label for="fk">FRED API KEY</label><input id="fk" autocomplete="off" spellcheck="false" placeholder="32 letters and digits" required></div><button style="align-self:end">SAVE KEY</button></form>
+<div class="msg" id="fmsg"></div></div></section>
 <p style="font:12px monospace;color:var(--muted)">Why owner-only: Schwab licenses API market data for the account holder's personal use, so the public site never receives it. <a href="/" style="color:var(--orange)">Back to the terminal</a></p>
 </main>
-<script>
-const $=s=>document.querySelector(s);let csrf='';
-function show(s){
-  const st=s.schwab;$('#pill').textContent=st.connected?'CONNECTED':st.configured?'NOT SIGNED IN':'NO KEYS';$('#pill').className='pill '+(st.connected?'on':'off');
-  $('#statusline').textContent=st.connected?`Connected. Sign-in good until ${new Date(st.refresh_expires*1000).toLocaleString()}.`:st.configured?'Keys saved. Sign in to Schwab to connect.':'Save your Schwab App Key and Secret first.';
-  if(st.error)$('#statusline').textContent+=' Last error: '+st.error;
-  $('#keys').open=!st.configured;$('#cb').value=st.callback||'https://127.0.0.1';
-}
-async function load(){const s=await fetch('/api/owner/setup',{cache:'no-store'}).then(r=>r.json());csrf=s.csrf;$('#link').textContent=s.owner_link||('Owner key: '+s.owner_key);show(s)}
-async function post(path,body){const r=await fetch(path,{method:'POST',headers:{'Content-Type':'application/json','X-Signal-Token':csrf},body:JSON.stringify(body)});const v=await r.json();if(!r.ok)throw new Error(v.error||'Failed');return v}
-function say(t,ok){$('#smsg').textContent=t;$('#smsg').className='msg '+(ok?'ok':'err')}
-$('#copy').onclick=async()=>{await navigator.clipboard.writeText($('#link').textContent);$('#copymsg').textContent='Copied.';$('#copymsg').className='msg ok'};
-$('#keysform').onsubmit=async e=>{e.preventDefault();try{show(await post('/api/owner/schwab/keys',{app_key:$('#ak').value,app_secret:$('#as').value,callback:$('#cb').value}));$('#as').value='';say('Keys saved. Now sign in.',true)}catch(err){say(err.message)}};
-$('#auth').onclick=async()=>{const v=await fetch('/api/owner/schwab/authorize').then(r=>r.json());if(v.error)return say(v.error);window.open(v.url,'_blank','noopener');say('Schwab sign-in opened in a new tab.',true)};
-$('#connform').onsubmit=async e=>{e.preventDefault();say('Connecting…',true);try{show(await post('/api/owner/schwab/connect',{url:$('#ru').value}));$('#ru').value='';say('Connected. Open the terminal: the badge should read LIVE · SCHWAB.',true)}catch(err){say(err.message)}};
-load();
-</script></body></html>
+<script src="/owner.js"></script></body></html>

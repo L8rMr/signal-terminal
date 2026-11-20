@@ -39,6 +39,12 @@ Each view has a short function code that can be typed into the command line at t
 | `NS fed rate cut` | Every headline in Signal's feeds plus Google News matching all the words, past 7 days | RSS + Google News |
 | `HELP` | Function list | |
 
+**Linked windows.** The colour dot in a window's title bar puts it in a link group (amber, blue, green, violet). Click the ticker in any linked window's title to type a new one, and every window of that colour follows: chart, DES, FA, OMON, and NS (which searches the ticker). Clicking a row in a linked MOST window loads that stock into the whole group. The default layout links everything in amber.
+
+**Shareable layouts.** SHARE LAYOUT copies a link (`/#ws=…`) that opens the exact workspace: windows, positions, sizes, tickers and link colours. The layout travels in the URL fragment, which never reaches the server, and is validated on load; UNDO restores your previous workspace.
+
+**Ticker strip.** A scrolling tape of indices, yields, FX, commodities, volatility and bitcoin sits under the header on every view. It pauses on hover, opens a chart when clicked, and turns into a plain scrollable row for people who prefer reduced motion.
+
 Quarterly cash flows are filed year-to-date, so FA derives each quarter as the difference between consecutive year-to-date figures, and fiscal Q4 as the full year minus nine months.
 
 Typing a US ticker such as `AAPL` opens company research. Selecting a headline opens a built-in reader where the publisher allows extraction.
@@ -89,6 +95,15 @@ The public copy runs on delayed Yahoo Finance prices. The owner can switch on li
 
 Why owner-only: Schwab's account agreements license market data for the account holder's personal, non-commercial use and forbid redistributing it. An individual Trader API app is not approved to serve other users. Schwab sign-in lasts 7 days; the badge turns amber when it needs renewing.
 
+## Protection, health and tests
+
+- **Rate limits.** Each visitor (by Cloudflare's connecting IP) gets a burst of 30 requests to the endpoints that call outside sources (DES, FA, MOST, OMON, NS, company research, reader, brief refresh), then one every 2 seconds; extra requests get HTTP 429 with `Retry-After`. The owner is never throttled. Live-update connections are capped at 4 per visitor and 60 in total.
+- **Coalescing.** Simultaneous requests for the same ticker share one upstream call, and a failing source is remembered for 20 seconds instead of being retried by every visitor.
+- **Headers.** A Content-Security-Policy allows scripts only from this site and TradingView, forbids framing, and blocks plugins; HSTS is sent on the public hostname.
+- **Asset versions.** The server stamps every `/file.js?v=` in `index.html` with a hash of the file, so a deploy never serves stale scripts and versioned files are cached for a year.
+- **Health.** `/health` reports news sources up/down, rate and economic-data freshness, and a `status` of `ok` or `degraded` with the problems listed. The footer shows the same as a status light.
+- **Tests.** `pytest -q tests` covers the public/owner boundary, Schwab isolation, the Cloudflare-relay rule, rate limits, coalescing, financial-statement derivation, symbol validation, asset hashing and health. GitHub Actions runs them, plus lint and a JavaScript syntax check, on every push.
+
 ## Configuration
 
 Set these in the shell or in a `.env` file next to `compose.yaml`. All are optional.
@@ -100,7 +115,7 @@ Set these in the shell or in a `.env` file next to `compose.yaml`. All are optio
 | `BRIEF_MODEL` | `claude-opus-5` | Model used for the analyst note. |
 | `POLL_SECONDS` | `30` | Feed polling interval, minimum 15. Set in `compose.yaml`. |
 | `DATA_DIR` | `/data` in Docker | Cache directory. |
-| `FRED_API_KEY` | unset | Free key from fred.stlouisfed.org. The economic dashboard uses FRED's official API with it; without it the app tries FRED's CSV download, which some networks block. |
+| `FRED_API_KEY` | unset | Free key from fred.stlouisfed.org (or paste it on the owner setup page, which stores it in the data volume). The economic dashboard uses FRED's official API with it; without it the app tries FRED's CSV download, which some networks block. |
 | `PUBLIC_HOSTS` | unset | Comma-separated hostnames allowed a read-only view from outside localhost, for example `signal.alenlvovich.com`. |
 
 Feeds, the watchlist and alert rules are edited in the app.
@@ -122,7 +137,6 @@ Feeds, the watchlist and alert rules are edited in the app.
 - The relevance score and regime score are hand-tuned heuristics. They have not been backtested.
 - The catalyst calendar includes a hardcoded list of Federal Reserve and BLS dates in `brief.py`, which has to be updated by hand.
 - The article reader fails on paywalled pages and unusual markup.
-- There are no automated tests.
 - Single user, no login. Settings writes require a session token and a localhost Host header. Hostnames in `PUBLIC_HOSTS` get a read-only view; there is no way to edit from the internet.
 - The Benzinga stream client is implemented but has not been run against a live subscription. The settings dialog has no field for the key.
 - Headlines are capped at the latest 600 and alerts at 100.
