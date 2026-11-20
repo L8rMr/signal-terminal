@@ -164,3 +164,8 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
   body.read-only .demo-badge,body .live-badge{font-size:11px}
   .ns-list a{display:block;padding:3px 0}
 }
+@media(max-width:600px){
+  .most th:nth-child(4),.most td:nth-child(4){display:none}
+  .most small{max-width:120px}
+  .ws-table td,.ws-table th{padding:5px 6px}
+}
