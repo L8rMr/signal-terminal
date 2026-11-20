@@ -75,14 +75,16 @@
   const setCrt = on => {
     document.documentElement.classList.toggle('crt', on);
     try { localStorage.setItem(crtKey, on ? '1' : '0'); } catch {}
-    crtBtn.textContent = on ? '◉ CRT ON' : '◐ CRT MODE';
+    crtBtn.innerHTML = on ? '◉<span> CRT ON</span>' : '◐<span> CRT MODE</span>';
     crtBtn.setAttribute('aria-pressed', String(on));
   };
   const crtBtn = document.createElement('button');
   crtBtn.type = 'button'; crtBtn.className = 'crt-toggle';
   crtBtn.title = 'Amber phosphor display';
   crtBtn.addEventListener('click', () => setCrt(!document.documentElement.classList.contains('crt')));
-  document.querySelector('footer')?.append(crtBtn);
+  // Lives in the header, just left of the clock.
+  const clock = document.querySelector('header .clock');
+  if (clock) clock.before(crtBtn); else header.append(crtBtn);
   setCrt(crtOn());
 
   // ---------- footer status light ----------
