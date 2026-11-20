@@ -6,6 +6,7 @@ from html.parser import HTMLParser
 from pathlib import Path
 import brief as brief_engine
 import schwab
+import market_functions as mf
 
 ROOT = Path(__file__).parent
 INTERVAL = max(15, int(os.getenv('POLL_SECONDS', '30')))
@@ -583,6 +584,56 @@ def company_research(query):
         except Exception: pass
     return result
 
+SYMBOL_RE=re.compile(r'[A-Z0-9][A-Z0-9.\-]{0,11}')
+
+def clean_symbol(value):
+    symbol=str(value or '').strip().upper().replace('/','-')
+    if not SYMBOL_RE.fullmatch(symbol): raise ValueError('Enter a ticker such as AAPL.')
+    return symbol
+
+def fa_report(symbol,periods):
+    cik,_,_=resolve_sec_company(symbol)
+    facts=sec_json(f'https://data.sec.gov/api/xbrl/companyfacts/CIK{cik}.json',900)
+    report=mf.financials(facts,'quarter' if periods=='quarter' else 'annual')
+    report.update(symbol=symbol,name=facts.get('entityName') or symbol,cik=cik)
+    return report
+
+ns_cache={}
+def news_search(query):
+    """NS: every cached headline that contains all the words, plus a Google News search."""
+    terms=[t for t in re.split(r'\s+',query.strip()) if t][:8]
+    if not terms: raise ValueError('Type words to search for, e.g. NS fed rate cut.')
+    q=' '.join(terms);key=q.upper();now=time.time()
+    words=[t.upper() for t in terms]
+    with condition:
+        local=[copy.deepcopy(a) for a in state['articles'] if all(w in f"{a.get('title','')} {a.get('summary','')}".upper() for w in words)]
+    remote=[]
+    cached=ns_cache.get(key)
+    if cached and cached[0]>now: remote=copy.deepcopy(cached[1])
+    else:
+        try:
+            url='https://news.google.com/rss/search?'+urllib.parse.urlencode({'q':q+' when:7d','hl':'en-US','gl':'US','ceid':'US:en'})
+            request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Signal Personal News Reader)','Accept':'application/rss+xml, application/xml'})
+            with urllib.request.urlopen(request,timeout=15) as response: raw=response.read(3_000_001)
+            if len(raw)<=3_000_000:
+                for item in ET.fromstring(raw).findall('.//item')[:60]:
+                    title=clean(item.findtext('title'));link=(item.findtext('link') or '').strip();publisher=clean(item.findtext('source')) or 'Google News'
+                    if not title or not safe_link(link): continue
+                    if title.endswith(' - '+publisher): title=title[:-len(publisher)-3]
+                    article={'id':'search:'+article_id(link),'title':title,'url':link,'source':publisher,'source_id':'news-search','category':'Markets',
+                             'published':date_value(item.findtext('pubDate')),'summary':f'News search result from {publisher}.','tickers':[],'delivery':'SEARCH'}
+                    article['relevance']=relevance(article);remote.append(article);research_articles[article['id']]=copy.deepcopy(article)
+            ns_cache[key]=(now+300,copy.deepcopy(remote))
+            if len(ns_cache)>200:
+                for k in sorted(ns_cache,key=lambda k:ns_cache[k][0])[:80]: ns_cache.pop(k,None)
+        except Exception: pass
+    seen=set();results=[]
+    for a in sorted(local+remote,key=lambda a:a.get('published') or 0,reverse=True):
+        k=re.sub(r'\W+','',a['title'].lower())[:80]
+        if k in seen: continue
+        seen.add(k);results.append({x:a.get(x) for x in ('id','title','url','source','published','delivery','tickers')})
+    return {'query':q,'results':results[:100],'local':len(local),'at':int(now)}
+
 def brief_history(snapshot=None):
     """One small row per day so the brief can say what changed since yesterday."""
     try: rows=json.loads((DATA/'brief_history.json').read_text())
@@ -940,6 +991,18 @@ class Handler(SimpleHTTPRequestHandler):
             if not self.local_request(): return self.reply({'error':'Not found.'},404)
             try: self.private_reply({'url':schwab.authorize_url()})
             except ValueError as exc: self.private_reply({'error':str(exc)},400)
+        elif path in ('/api/des','/api/fa','/api/most','/api/omon','/api/ns'):
+            query=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query);arg=lambda k,d='':(query.get(k) or [d])[0]
+            try:
+                if path=='/api/des': self.reply(mf.describe(clean_symbol(arg('symbol'))))
+                elif path=='/api/fa': self.reply(fa_report(clean_symbol(arg('symbol')),arg('periods','annual')))
+                elif path=='/api/most': self.reply(mf.most(arg('kind','ACTIVE')))
+                elif path=='/api/omon': self.reply(mf.option_chain(clean_symbol(arg('symbol')),arg('expiry') or None))
+                else: self.reply(news_search(arg('q')[:200]))
+            except ValueError as exc: self.reply({'error':str(exc)[:200]},400)
+            except LookupError as exc: self.reply({'error':str(exc)[:200]},404)
+            except urllib.error.HTTPError as exc: self.reply({'error':f'The data source returned HTTP {exc.code}. Try again shortly.'},502)
+            except (urllib.error.URLError,TimeoutError,OSError,KeyError,TypeError,json.JSONDecodeError): self.reply({'error':'The data source could not be reached. Try again shortly.'},503)
         elif path=='/api/live/quotes':
             # Owner only: Schwab data is licensed for the account holder's personal use.
             if not owner: return self.private_reply({'error':'Live quotes are only available to the owner.'},403)
