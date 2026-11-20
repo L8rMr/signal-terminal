@@ -168,8 +168,9 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
 }
 
 /* ---------- Ticker strip (strip.js) ---------- */
-.tkr{position:relative;overflow:hidden;border-bottom:1px solid var(--line);background:#0b0e12;height:34px;
-  mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 40px,#000 calc(100% - 40px),transparent)}
+.tkr{position:relative;display:flex;border-bottom:1px solid var(--line);background:#0b0e12;height:34px}
+.tkr-view{flex:1;min-width:0;overflow:hidden;
+  mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 40px),transparent);-webkit-mask-image:linear-gradient(90deg,transparent,#000 30px,#000 calc(100% - 40px),transparent)}
 .tkr-track{display:flex;width:max-content;height:100%;animation:tkrscroll var(--tkr-duration,60s) linear infinite}
 .tkr:hover .tkr-track,.tkr:focus-within .tkr-track{animation-play-state:paused}
 .tkr-run{display:flex;align-items:center}
@@ -179,7 +180,7 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
 .tkr-item.live b::after{content:'';display:inline-block;width:5px;height:5px;border-radius:50%;background:var(--green);margin-left:6px;vertical-align:middle}
 .tkr-wait{font:11px monospace;color:var(--muted);padding:0 20px;line-height:34px;letter-spacing:1px}
 @keyframes tkrscroll{from{transform:translateX(0)}to{transform:translateX(-50%)}}
-@media(prefers-reduced-motion:reduce){.tkr{overflow-x:auto;mask-image:none;-webkit-mask-image:none}.tkr-track{animation:none}.tkr-run[aria-hidden]{display:none}}
+@media(prefers-reduced-motion:reduce){.tkr-view{overflow-x:auto;mask-image:none;-webkit-mask-image:none}.tkr-track{animation:none}.tkr-run[aria-hidden]{display:none}}
 
 /* ---------- Footer status light ---------- */
 .sys-status{font:11px monospace;letter-spacing:.5px;padding:0;color:var(--muted)}
@@ -203,3 +204,55 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
 .ws-toast button{border:1px solid #414b57;padding:3px 9px;font:11px monospace;color:var(--orange)}
 .ws-toast-link{width:min(420px,60vw);background:#0b0e12;border:1px solid var(--line);color:var(--text);font:11px monospace;padding:4px}
 @media(pointer:coarse){.ws-link{width:38px}.ws-tkr{min-height:32px}.tkr-item{height:40px}.tkr{height:40px}}
+
+/* ---------- Market session marker ---------- */
+.tkr-session{flex:0 0 auto;display:flex;align-items:center;padding:0 14px;font:700 11px monospace;letter-spacing:.8px;color:var(--muted);
+  border-right:1px solid var(--line);background:#0e1216;white-space:nowrap}
+.tkr-session.open{color:var(--green)}.tkr-session.ext{color:#e8c46a}.tkr-session.closed{color:#7c8794}
+.tkr-session.open::first-letter{animation:livepulse 2s ease-in-out infinite}
+/* Outside regular hours prices dim a little: the numbers are not moving. */
+html[data-session=closed] .tkr-item .v,html[data-session=closed] .tape-tile strong,html[data-session=closed] .ws-table td,
+html[data-session=closed] .des-px b{opacity:.62}
+html[data-session=ext] .tkr-item .v,html[data-session=ext] .tape-tile strong{opacity:.82}
+
+/* ---------- Quick-start chips are for first-timers ---------- */
+body.onboarded .quick-commands{display:none}
+.db-short{display:none}
+
+/* ---------- Phones: compact header, app-style bottom tabs ---------- */
+@media(max-width:600px){
+  .quick-commands{display:none}
+  .db-long{display:none}.db-short{display:inline}
+  body.read-only .demo-badge{flex:0 1 auto;order:0;width:auto;padding:4px 8px;margin-left:auto;font-size:10.5px}
+  header{gap:8px 12px}.brand{font-size:23px}.brand span{font-size:10px;letter-spacing:1.5px}
+  .clock b{font-size:15px}
+  .command-area{margin:8px 8px 4px}.commandbar{margin:8px 10px;padding:8px 10px}.prompt{font-size:22px}
+  nav#functions{position:fixed;left:0;right:0;bottom:0;z-index:60;margin:0;padding:0 4px env(safe-area-inset-bottom);gap:0;
+    background:rgba(13,17,22,.97);border-top:1px solid var(--line);border-bottom:0;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+  nav#functions button{font-size:0;padding:14px 13px 12px;border-bottom:0;border-top:2px solid transparent;flex:0 0 auto}
+  nav#functions button b{font-size:12px;margin:0}
+  nav#functions button.active{border-top-color:var(--orange)}
+  nav#functions i{font-size:10px;margin-left:4px}
+  body{padding-bottom:calc(56px + env(safe-area-inset-bottom))}
+  .ws-toast{bottom:calc(70px + env(safe-area-inset-bottom))}
+  .tkr-session{padding:0 10px;font-size:10px}
+}
+
+/* ---------- CRT mode: amber phosphor ---------- */
+html.crt{--bg:#0b0805;--panel:#130e09;--line:#3a2b1b;--text:#ffd9a6;--muted:#b88f5f;--orange:#ffb347}
+html.crt body{background:var(--bg);text-shadow:0 0 2px rgba(255,170,70,.55),0 0 9px rgba(255,140,40,.18)}
+html.crt header,html.crt .tkr,html.crt .tkr-session,html.crt .panelhead,html.crt .ws-head,html.crt .ws-bar,html.crt .ws-table th,
+html.crt .commandbar,html.crt .command-area,html.crt .columns,html.crt .news-toolbar{background:#17100a}
+html.crt .ws-canvas{background:#0b0805 radial-gradient(#2a1d10 1px,transparent 1px) 0 0/20px 20px}
+html.crt .ws-win,html.crt .panel{background:#120c07;border-color:#4a3520}
+html.crt input,html.crt select{background:#0b0805;color:var(--text)}
+/* Warm everything (charts included) toward amber while keeping red/green apart. */
+html.crt::before{content:'';position:fixed;inset:0;z-index:9998;pointer-events:none;background:#ff9a2e;mix-blend-mode:soft-light;opacity:.45}
+/* Scanlines and a soft tube vignette. */
+html.crt::after{content:'';position:fixed;inset:0;z-index:9999;pointer-events:none;
+  background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0 1px,transparent 1px 3px),
+             radial-gradient(ellipse at center,transparent 58%,rgba(0,0,0,.55) 100%)}
+.crt-toggle{font:11px monospace;letter-spacing:.5px;color:var(--muted);padding:0}
+.crt-toggle:hover{color:var(--orange);background:transparent}
+html.crt .crt-toggle{color:var(--orange)}
+@media print{html.crt::before,html.crt::after{display:none}}
