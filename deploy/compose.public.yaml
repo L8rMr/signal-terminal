@@ -41,9 +41,9 @@ services:
        sig() { cat /repo/*.py /repo/requirements.txt 2>/dev/null | md5sum; };
        while true; do
          pip install -q --no-cache-dir --root-user-action=ignore -r /repo/requirements.txt;
-         S=$(sig); python /repo/server.py & P=$!;
-         while kill -0 $P 2>/dev/null && [ "$(sig)" = "$S" ]; do sleep 60; done;
-         kill $P 2>/dev/null; wait $P 2>/dev/null; echo "code changed, restarting";
+         S=$$(sig); python /repo/server.py & P=$$!;
+         while kill -0 $$P 2>/dev/null && [ "$$(sig)" = "$$S" ]; do sleep 60; done;
+         kill $$P 2>/dev/null; wait $$P 2>/dev/null; echo "code changed, restarting";
        done'
     ports:
       - "127.0.0.1:8098:8080"
