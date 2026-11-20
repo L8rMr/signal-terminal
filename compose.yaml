@@ -7,6 +7,9 @@ services:
     environment:
       POLL_SECONDS: "30"
       SEC_USER_AGENT: "${SEC_USER_AGENT:-Signal Personal Terminal contact@example.com}"
+      # Optional: free key from fred.stlouisfed.org. Needed for the FRED economic dashboard
+      # when FRED blocks plain CSV downloads from your network (rates work without it).
+      FRED_API_KEY: "${FRED_API_KEY:-}"
       # Optional: set to add a Claude-written analyst note to the Daily Market Brief.
       ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY:-}"
       BRIEF_MODEL: "${BRIEF_MODEL:-claude-opus-5}"

@@ -34,6 +34,9 @@ services:
       POLL_SECONDS: "30"
       PUBLIC_HOSTS: signal.alenlvovich.com
       SEC_USER_AGENT: "${SEC_USER_AGENT:-Signal Personal Terminal contact@example.com}"
+      # Optional: free key from fred.stlouisfed.org. Needed for the FRED economic dashboard
+      # when FRED blocks plain CSV downloads from your network (rates work without it).
+      FRED_API_KEY: "${FRED_API_KEY:-}"
       # No ANTHROPIC_API_KEY on purpose: public visitors should never trigger paid calls.
     entrypoint: ["/bin/sh", "-c"]
     command: >-

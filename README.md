@@ -100,6 +100,7 @@ Set these in the shell or in a `.env` file next to `compose.yaml`. All are optio
 | `BRIEF_MODEL` | `claude-opus-5` | Model used for the analyst note. |
 | `POLL_SECONDS` | `30` | Feed polling interval, minimum 15. Set in `compose.yaml`. |
 | `DATA_DIR` | `/data` in Docker | Cache directory. |
+| `FRED_API_KEY` | unset | Free key from fred.stlouisfed.org. The economic dashboard uses FRED's official API with it; without it the app tries FRED's CSV download, which some networks block. |
 | `PUBLIC_HOSTS` | unset | Comma-separated hostnames allowed a read-only view from outside localhost, for example `signal.alenlvovich.com`. |
 
 Feeds, the watchlist and alert rules are edited in the app.
@@ -108,7 +109,8 @@ Feeds, the watchlist and alert rules are edited in the app.
 
 - Headlines: public RSS and Atom feeds (CNBC, BBC, Federal Reserve, Yahoo Finance, MarketWatch and others), polled every 30 seconds and pushed to the browser over server-sent events.
 - Prices: Yahoo Finance chart endpoint, fetched server-side and cached for five minutes per symbol.
-- Economic data and rates: FRED public CSV downloads.
+- Rates: Fed funds and SOFR from the New York Fed, 2/10/30-year yields from Treasury.gov (no key needed).
+- Economic indicators: FRED, through the official API when `FRED_API_KEY` is set, otherwise the public CSV download.
 - Company data: SEC submissions and company-facts APIs, cached for 15 minutes and limited to four requests per second.
 - Charts and the economic calendar: TradingView embed widgets, loaded by the browser.
 

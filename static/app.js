@@ -144,7 +144,8 @@ function selectFred(series){
 function renderFred(){
   const group=$('#fred-group').value,list=(data.economy||[]).filter(x=>group==='All indicators'||x.group===group);
   $('#fred-grid').innerHTML=list.length?list.map(x=>{const delta=x.value-x.previous,cls=delta>0?'up':delta<0?'down':'';return `<button data-fred="${esc(x.series)}" class="${x.series===selectedFred?'active':''}"><span>${esc(x.group)} · ${esc(x.series)}</span><strong>${esc(fredValue(x))}</strong><small class="${cls}">${delta>=0?'▲':'▼'} ${Math.abs(delta).toFixed(2)} · ${esc(x.date)}</small><b>${esc(x.name)}</b></button>`}).join(''):'<div class="empty">No indicators match this category.</div>';
-  $('#fred-updated').textContent=data.economy_updated?`UPDATED ${stamp(data.economy_updated)} · ${data.economy.length} SERIES`:'LOADING SERIES';
+  $('#fred-updated').textContent=data.economy_updated?`UPDATED ${stamp(data.economy_updated)} · ${data.economy.length} SERIES`:data.economy_error?'FRED UNAVAILABLE':'LOADING SERIES';
+  if(!(data.economy||[]).length&&data.economy_error)$('#fred-grid').innerHTML=`<div class="empty">${esc(data.economy_error)}</div>`;
   const next=list.some(x=>x.series===selectedFred)?selectedFred:list[0]?.series;if(next)selectFred(next);
 }
 $('#fred-grid').onclick=e=>{const b=e.target.closest('[data-fred]');if(b)selectFred(b.dataset.fred)};$('#fred-group').onchange=renderFred;
