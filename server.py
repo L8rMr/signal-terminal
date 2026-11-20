@@ -23,7 +23,7 @@ DEFAULT_FEEDS = [
     ('BBC World', 'World', 'https://feeds.bbci.co.uk/news/world/rss.xml'),
     ('Federal Reserve', 'Policy', 'https://www.federalreserve.gov/feeds/press_all.xml'),
     ('CNBC Tech', 'Technology', 'https://www.cnbc.com/id/19854910/device/rss/rss.html'),
-    ('Yahoo Finance', 'Markets', 'https://finance.yahoo.com/news/rssindex'),
+    ('Yahoo Finance', 'Markets', 'https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EDJI,%5EIXIC&region=US&lang=en-US'),
     ('Reuters Headlines', 'Markets', 'https://news.google.com/rss/search?q=site%3Areuters.com+business+markets&hl=en-US&gl=US&ceid=US%3Aen'),
     ('Investing.com Stocks', 'Markets', 'https://www.investing.com/rss/news_25.rss'),
     ('WSJ Markets', 'Markets', 'https://feeds.content.dowjones.io/public/rss/RSSMarketsMain'),
@@ -268,7 +268,7 @@ def broadcast(added=(), removed=()):
 def light_state():
     """Everything except the article list and FRED history, which move on their own schedules."""
     economy = [{k: v for k, v in item.items() if k != 'history'} for item in state['economy']]
-    return {k: state[k] for k in ('sources', 'updated', 'version', 'interval', 'alerts', 'rates', 'rates_updated', 'economy_updated', 'stream')} | {'economy': economy}
+    return {k: state[k] for k in ('sources', 'updated', 'version', 'interval', 'alerts', 'rates', 'rates_updated', 'economy_updated', 'stream')} | {'economy_error': state.get('economy_error')} | {'economy': economy}
 
 def event_payload(since):
     """Full snapshot for a new client, otherwise only the articles that changed."""
@@ -352,16 +352,74 @@ FRED_INDICATORS=[
     ('DCOILWTICO','WTI crude','Commodities','$/bbl','level',1),
 ]
 
+FRED_API_KEY=os.getenv('FRED_API_KEY','').strip()
+
+def http_text(url,timeout=15,limit=4_000_000,accept='*/*'):
+    request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Signal Personal Terminal)','Accept':accept})
+    with urllib.request.urlopen(request,timeout=timeout) as response: return response.read(limit).decode('utf-8','replace')
+
+def nyfed_rate(kind,path,name):
+    data=json.loads(http_text(f'https://markets.newyorkfed.org/api/rates/{path}/last/2.json',accept='application/json'))
+    rows=data.get('refRates') or []
+    if not rows: raise ValueError('No New York Fed observations')
+    last=rows[0];previous=rows[1] if len(rows)>1 else last
+    return {'series':kind,'name':name,'value':float(last['percentRate']),'previous':float(previous['percentRate']),'date':last['effectiveDate'],'unit':'%','source':'New York Fed'}
+
+def treasury_yields():
+    """Daily par yield curve from Treasury.gov (this month, plus last month early in a month)."""
+    ns={'a':'http://www.w3.org/2005/Atom','m':'http://schemas.microsoft.com/ado/2007/08/dataservices/metadata','d':'http://schemas.microsoft.com/ado/2007/08/dataservices'}
+    today=datetime.date.today();months=[today.strftime('%Y%m'),(today.replace(day=1)-datetime.timedelta(days=1)).strftime('%Y%m')]
+    rows=[]
+    for month in months:
+        raw=http_text('https://home.treasury.gov/resource-center/data-chart-center/interest-rates/pages/xml?data=daily_treasury_yield_curve&field_tdr_date_value_month='+month,accept='application/xml')
+        for entry in ET.fromstring(raw).findall('a:entry',ns):
+            props=entry.find('a:content/m:properties',ns)
+            if props is None: continue
+            row={child.tag.split('}')[1]:(child.text or '') for child in props}
+            if row.get('NEW_DATE'): rows.append(row)
+        if len(rows)>=2: break
+    rows.sort(key=lambda r:r['NEW_DATE'])
+    if len(rows)<1: raise ValueError('No Treasury yield observations')
+    result=[]
+    for series,field,name in (('DGS2','BC_2YEAR','US 2Y'),('DGS10','BC_10YEAR','US 10Y'),('DGS30','BC_30YEAR','US 30Y')):
+        valid=[r for r in rows if r.get(field)]
+        if not valid: continue
+        last=valid[-1];previous=valid[-2] if len(valid)>1 else last
+        result.append({'series':series,'name':name,'value':float(last[field]),'previous':float(previous[field]),'date':last['NEW_DATE'][:10],'unit':'%','source':'US Treasury'})
+    return result
+
+def keyless_rates():
+    rates=[]
+    for args in (('DFF','unsecured/effr','Fed Funds'),('SOFR','secured/sofr','SOFR')):
+        try: rates.append(nyfed_rate(*args))
+        except Exception as exc: print('Rates: New York Fed',args[0],'failed:',type(exc).__name__,str(exc)[:120],flush=True)
+    try: rates+=treasury_yields()
+    except Exception as exc: print('Rates: Treasury yields failed:',type(exc).__name__,str(exc)[:120],flush=True)
+    return rates
+
+def fred_observations(series,limit=None):
+    """[(date, value)] from the FRED API when FRED_API_KEY is set, otherwise the public CSV download."""
+    if FRED_API_KEY:
+        params={'series_id':series,'api_key':FRED_API_KEY,'file_type':'json'}
+        if limit: params.update(sort_order='desc',limit=limit)
+        data=json.loads(http_text('https://api.stlouisfed.org/fred/series/observations?'+urllib.parse.urlencode(params),accept='application/json'))
+        values=[(o['date'],float(o['value'])) for o in data.get('observations',[]) if o.get('value') not in (None,'.','')]
+        return sorted(values)
+    content=http_text('https://fred.stlouisfed.org/graph/fredgraph.csv?'+urllib.parse.urlencode({'id':series}))
+    values=[]
+    for row in csv.DictReader(io.StringIO(content)):
+        raw=row.get(series)
+        if raw in (None,'.',''): continue
+        try: values.append((row.get('observation_date') or row.get('DATE'),float(raw)))
+        except ValueError: continue
+    return values
+
 def fetch_rate(item):
     series,name,unit=item
-    url='https://fred.stlouisfed.org/graph/fredgraph.csv?'+urllib.parse.urlencode({'id':series})
-    request=urllib.request.Request(url,headers={'User-Agent':'Signal Personal Terminal'})
-    with urllib.request.urlopen(request,timeout=12) as response: content=response.read(2_000_000).decode('utf-8','replace')
-    rows=list(csv.DictReader(io.StringIO(content)))
-    valid=[r for r in rows if r.get(series) not in (None,'.','')]
-    if not valid: raise ValueError('No rate observations')
-    last=valid[-1];previous=valid[-2] if len(valid)>1 else last
-    return {'series':series,'name':name,'value':float(last[series]),'previous':float(previous[series]),'date':last.get('observation_date') or last.get('DATE'),'unit':unit}
+    values=fred_observations(series,limit=5)
+    if not values: raise ValueError('No rate observations')
+    last=values[-1];previous=values[-2] if len(values)>1 else last
+    return {'series':series,'name':name,'value':last[1],'previous':previous[1],'date':last[0],'unit':unit,'source':'FRED'}
 
 def transformed_history(values, mode, lag):
     output=[]
@@ -377,24 +435,19 @@ def transformed_history(values, mode, lag):
 
 def fetch_indicator(item):
     series,name,group,unit,mode,lag=item
-    url='https://fred.stlouisfed.org/graph/fredgraph.csv?'+urllib.parse.urlencode({'id':series})
-    request=urllib.request.Request(url,headers={'User-Agent':'Signal Personal Terminal'})
-    with urllib.request.urlopen(request,timeout=15) as response: content=response.read(4_000_000).decode('utf-8','replace')
-    rows=list(csv.DictReader(io.StringIO(content)));values=[]
-    for row in rows:
-        raw=row.get(series)
-        if raw in (None,'.',''): continue
-        try: values.append((row.get('observation_date') or row.get('DATE'),float(raw)))
-        except ValueError: continue
+    values=fred_observations(series)
     history=transformed_history(values,mode,lag)[-120:]
     if not history: raise ValueError('No FRED observations')
     latest=history[-1];previous=history[-2] if len(history)>1 else latest
     return {'series':series,'name':name,'group':group,'unit':unit,'value':latest['value'],'previous':previous['value'],
             'date':latest['date'],'history':history,'url':f'https://fred.stlouisfed.org/series/{series}'}
 
+fred_errors={}
 def fetch_indicator_safe(item):
-    try: return fetch_indicator(item)
-    except Exception: return None
+    try:
+        result=fetch_indicator(item);fred_errors.pop(item[0],None);return result
+    except Exception as exc:
+        fred_errors[item[0]]=f'{type(exc).__name__}: {str(exc)[:120]}';return None
 
 def sec_json(url, ttl=900):
     """Fetch an official SEC JSON resource with a shared cache and conservative rate limit."""
@@ -696,28 +749,43 @@ def build_briefing(force=False):
     return brief
 
 def rates_loop():
+    """Fed funds and SOFR from the New York Fed, Treasury yields from Treasury.gov (no key needed).
+    FRED fills any series those sources miss, if it is reachable."""
     while True:
-        try:
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as pool: rates=list(pool.map(fetch_rate,RATE_SERIES))
+        rates=keyless_rates();have={r['series'] for r in rates}
+        for item in RATE_SERIES:
+            if item[0] in have: continue
+            try: rates.append(fetch_rate(item))
+            except Exception as exc: print('Rates: FRED',item[0],'failed:',type(exc).__name__,flush=True)
+        order={s[0]:i for i,s in enumerate(RATE_SERIES)};rates.sort(key=lambda r:order.get(r['series'],99))
+        if rates:
             with condition: state['rates']=rates;state['rates_updated']=time.time();broadcast()
-        except Exception: pass
-        time.sleep(900)
+        time.sleep(900 if rates else 120)
 
 def economy_loop():
     while True:
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=6) as pool:
                 results=[x for x in pool.map(fetch_indicator_safe,FRED_INDICATORS) if x]
-            if results:
-                with condition: state['economy']=results;state['economy_updated']=time.time();broadcast()
+            error=None
+            if not results:
+                error=('FRED is not answering from this server. Set FRED_API_KEY (free at fred.stlouisfed.org) to use the official API.'
+                       if not FRED_API_KEY else 'FRED API request failed: '+next(iter(fred_errors.values()),'unknown error'))
+                print('FRED indicators unavailable:',next(iter(fred_errors.values()),''),flush=True)
+            with condition:
+                if results: state['economy']=results;state['economy_updated']=time.time()
+                state['economy_error']=error;broadcast()
         except Exception as exc: print('FRED indicator refresh incomplete',type(exc).__name__,flush=True)
-        time.sleep(900)
+        time.sleep(900 if state['economy'] else 300)
 
 def public_settings():
     return {k:copy.deepcopy(config[k]) for k in ('revision','feeds','watchlist','rules')} | {'benzinga_configured':bool(config['benzinga_key'])}
 
 OWNER_COOKIE='signal_owner'
 owner_key=''
+
+RETIRED_YAHOO_FEED='https://finance.yahoo.com/news/rssindex'
+YAHOO_FEED='https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EDJI,%5EIXIC&region=US&lang=en-US'
 
 def load_owner_key():
     """Random owner key kept in the data volume. Whoever holds it gets the owner view
@@ -740,7 +808,7 @@ def load():
                 prior_schema=value.get('schema',1)
                 config.update(value)
                 if prior_schema<2 and not any(f.get('name')=='Yahoo Finance' for f in config['feeds']):
-                    config['feeds'].append(dict(id='5',name='Yahoo Finance',category='Markets',url='https://finance.yahoo.com/news/rssindex',enabled=True))
+                    config['feeds'].append(dict(id='5',name='Yahoo Finance',category='Markets',url='https://feeds.finance.yahoo.com/rss/2.0/headline?s=%5EGSPC,%5EDJI,%5EIXIC&region=US&lang=en-US',enabled=True))
                     config['schema']=2;migrated=True
                 if prior_schema<3:
                     existing_names={f.get('name') for f in config['feeds']};existing_urls={f.get('url') for f in config['feeds']}
@@ -749,6 +817,11 @@ def load():
                             config['feeds'].append(dict(id=str(index),name=name,category=category,url=url,enabled=True))
                             existing_names.add(name);existing_urls.add(url)
                     config['schema']=3;migrated=True
+                if config.get('schema',1)<4:
+                    # Yahoo retired /news/rssindex (HTTP 404) in 2026; its headline feed still works.
+                    for feed in config['feeds']:
+                        if feed.get('url')==RETIRED_YAHOO_FEED: feed['url']=YAHOO_FEED
+                    config['schema']=4;migrated=True
             else:
                 state['articles']=value.get('articles',[]);state['alerts']=value.get('alerts',[])
                 seen.update(value.get('seen',{}));seen.update({a['id']:a.get('received',time.time()) for a in state['articles']})
@@ -886,7 +959,11 @@ class Handler(SimpleHTTPRequestHandler):
     def request_host(self):
         try: return (urllib.parse.urlparse('http://'+self.headers.get('Host','')).hostname or '').lower()
         except ValueError: return ''
-    def local_request(self): return self.request_host() in ('localhost','127.0.0.1','::1')
+    def local_request(self):
+        # Requests relayed by the Cloudflare Tunnel carry CF headers that clients cannot strip,
+        # so they are never treated as local even if the Host header claims localhost.
+        if self.headers.get('Cf-Ray') or self.headers.get('Cf-Connecting-Ip'): return False
+        return self.request_host() in ('localhost','127.0.0.1','::1')
     def public_request(self): return self.request_host() in PUBLIC_HOSTS
     def owner_cookie(self):
         for part in self.headers.get('Cookie','').split(';'):

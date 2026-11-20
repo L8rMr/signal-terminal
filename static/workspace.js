@@ -205,7 +205,7 @@
       ${d.next_earnings ? `<p class="des-line"><b>EARNINGS</b> ${new Date(d.next_earnings * 1000).toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: 'numeric'})}</p>` : ''}
       ${d.summary ? `<details class="des-sum"><summary>BUSINESS DESCRIPTION</summary><p>${escH(d.summary)}</p></details>` : ''}
       ${d.officers?.length ? `<p class="des-line"><b>MANAGEMENT</b> ${d.officers.map(o => `${escH(o.name)} <span class="muted">${escH(o.title || '')}</span>`).join(' · ')}</p>` : ''}
-      <p class="ws-src">${escH(d.source)}${d.website ? ` · <a href="${escH(d.website)}" target="_blank" rel="noopener">${escH(d.website.replace(/^https?:\/\//, ''))}</a>` : ''}</p></div>`;
+      <p class="ws-src">${escH(d.source)}${/^https?:\/\//i.test(d.website || '') ? ` · <a href="${escH(d.website)}" target="_blank" rel="noopener">${escH(d.website.replace(/^https?:\/\//, ''))}</a>` : ''}</p></div>`;
   }
 
   function sparkRow(values) {
