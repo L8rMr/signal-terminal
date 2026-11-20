@@ -24,7 +24,7 @@
     FA:   {name: 'Financial analysis', ticker: true, w: 760, h: 540, about: 'Income, balance sheet and cash flow from SEC filings'},
     G:    {name: 'Chart', ticker: true, w: 660, h: 440, about: 'Interactive price chart'},
     OMON: {name: 'Option monitor', ticker: true, w: 880, h: 560, about: 'Option chain with greeks, delayed ~15 min'},
-    MOST: {name: 'Most active', ticker: false, w: 560, h: 540, about: 'Most active, top gainers and losers (MOST GAINERS / MOST LOSERS)'},
+    MOST: {name: 'Most active', ticker: false, w: 620, h: 540, about: 'Most active, top gainers and losers (MOST GAINERS / MOST LOSERS)'},
     NS:   {name: 'News search', ticker: false, w: 560, h: 520, about: 'Every headline matching your words (NS fed rate cut)'},
     HELP: {name: 'Functions', ticker: false, w: 520, h: 520, about: 'This list'},
   };
@@ -73,12 +73,17 @@
   const save = () => store.set(STORE, layout);
 
   function defaultLayout() {
-    return [
-      {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: 520, h: 500},
-      {fn: 'G', arg: 'SPY', x: 530, y: 0, w: 640, h: 500},
-      {fn: 'NS', arg: 'Federal Reserve', x: 0, y: 510, w: 520, h: 440},
-      {fn: 'DES', arg: 'NVDA', x: 530, y: 510, w: 640, h: 440},
-    ].map((w, i) => ({...w, id: 'w' + Date.now().toString(36) + i, z: i + 1}));
+    // Fill the canvas: three columns on wide screens, two otherwise.
+    const W = Math.max(900, (canvas()?.clientWidth || 1200) - 24), gap = 10;
+    const wins = W >= 1500
+      ? (() => { const a = Math.round(W * 0.32), b = Math.round(W * 0.36), c = W - a - b - gap * 2; return [
+          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 520}, {fn: 'G', arg: 'SPY', x: a + gap, y: 0, w: b, h: 520},
+          {fn: 'NS', arg: 'Federal Reserve', x: a + b + gap * 2, y: 0, w: c, h: 520},
+          {fn: 'DES', arg: 'NVDA', x: 0, y: 530, w: a + b + gap, h: 460}, {fn: 'OMON', arg: 'SPY', x: a + b + gap * 2, y: 530, w: c, h: 460}]; })()
+      : (() => { const a = Math.round(W * 0.42), b = W - a - gap; return [
+          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 500}, {fn: 'G', arg: 'SPY', x: a + gap, y: 0, w: b, h: 500},
+          {fn: 'NS', arg: 'Federal Reserve', x: 0, y: 510, w: a, h: 460}, {fn: 'DES', arg: 'NVDA', x: a + gap, y: 510, w: b, h: 460}]; })();
+    return wins.map((w, i) => ({...w, id: 'w' + Date.now().toString(36) + i, z: i + 1}));
   }
 
   function open(fn, arg) {
@@ -263,7 +268,8 @@
       <div class="ws-scroll"><table class="ws-table omon"><thead><tr><th colspan="7" class="side">CALLS</th><th></th><th colspan="7" class="side">PUTS</th></tr><tr>${labels.map(l => `<th>${l}</th>`).join('')}<th>STRIKE</th>${labels.map(l => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
       <p class="ws-src">${escH(d.source)} · as of ${escH(d.as_of || '')} · 40 strikes nearest the money · shaded = in the money</p></div>`;
     body.querySelector('select').onchange = e => { w.expiry = e.target.value; save(); render(w, e.target.closest('.ws-win'), true); };
-    const atmRow = body.querySelector('tr.atm'); if (atmRow) atmRow.scrollIntoView({block: 'center'});
+    const atmRow = body.querySelector('tr.atm'), scroller = body.querySelector('.ws-scroll');
+    if (atmRow && scroller) scroller.scrollTop = Math.max(0, atmRow.offsetTop - scroller.clientHeight / 2);
   }
 
   // ---------- view + chrome ----------

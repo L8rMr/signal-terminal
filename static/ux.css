@@ -81,11 +81,12 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
 .ws-error{padding:22px;font:12px monospace}.ws-error b{color:var(--orange)}.ws-error p{color:#b5bfcb;font-family:Arial;font-size:14px}
 .ws-empty{position:absolute;inset:40% 10% auto;text-align:center;color:var(--muted);font-size:14px;line-height:2}
 .ws-empty kbd{color:var(--orange)}.ws-empty button{color:var(--orange);text-decoration:underline;padding:0}
-.ws-pad{padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:100%}
+.ws-pad{padding:12px 14px;display:flex;flex-direction:column;gap:10px;height:100%;overflow:auto}
+.ws-pad>*{flex-shrink:0}.ws-pad>.ws-scroll{flex:1 1 0;min-height:80px}
 .ws-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font:12px monospace}
 .ws-seg{display:flex}.ws-seg button+button{border-left:0}.ws-seg button.on{color:var(--orange);background:#201b13;border-color:#6b5a35}
 .ws-acts{display:inline-flex;gap:4px;margin-left:auto}.ws-acts button{color:var(--orange);padding:2px 7px}
-.ws-scroll{overflow:auto;flex:1;min-height:0}
+.ws-scroll{overflow:auto}
 .ws-table{width:100%;border-collapse:collapse;font:12px monospace}
 .ws-table th{position:sticky;top:0;background:#141a21;color:var(--muted);font-weight:400;text-align:right;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
 .ws-table td{text-align:right;padding:5px 8px;border-bottom:1px solid #1d242c;white-space:nowrap}
