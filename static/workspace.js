@@ -265,6 +265,7 @@
     }).join('');
     const opts = d.expiries.map(e => { const dt = new Date(e + 'T12:00:00'); const dte = Math.round((dt - Date.now()) / 864e5); return `<option value="${e}" ${e === d.expiry ? 'selected' : ''}>${dt.toLocaleDateString('en-US', {month: 'short', day: 'numeric', year: '2-digit'})} · ${Math.max(0, dte)}d</option>`; }).join('');
     body.innerHTML = `<div class="ws-pad"><div class="ws-row"><label class="muted">EXPIRY <select>${opts}</select></label><span><b>${escH(d.symbol)}</b> ${num(spot)} <em class="${tone(d.change_pct)}">${pctv(d.change_pct)}</em></span>${actions(d.symbol)}</div>
+      <p class="omon-legend">◂ CALLS · STRIKE · PUTS ▸</p>
       <div class="ws-scroll"><table class="ws-table omon"><thead><tr><th colspan="7" class="side">CALLS</th><th></th><th colspan="7" class="side">PUTS</th></tr><tr>${labels.map(l => `<th>${l}</th>`).join('')}<th>STRIKE</th>${labels.map(l => `<th>${l}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table></div>
       <p class="ws-src">${escH(d.source)} · as of ${escH(d.as_of || '')} · 40 strikes nearest the money · shaded = in the money</p></div>`;
     body.querySelector('select').onchange = e => { w.expiry = e.target.value; save(); render(w, e.target.closest('.ws-win'), true); };

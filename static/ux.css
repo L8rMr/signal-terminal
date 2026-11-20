@@ -129,3 +129,28 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
   .ws-win{position:relative!important;left:auto!important;top:auto!important;width:auto!important;height:70vh!important;z-index:auto!important}
   .ws-head{cursor:default}.ws-grip{display:none}.cmd-suggest{margin-left:14px}.ws-bar .muted{display:none}
 }
+
+/* ---------- Phones and touch screens ---------- */
+.omon-legend{display:none;margin:0;font:11px monospace;color:var(--orange);text-align:center}
+@media(max-width:600px){
+  /* Header: let the brand, badges and clock wrap instead of widening the page */
+  header{height:auto;min-height:64px;flex-wrap:wrap;row-gap:8px;padding:10px 14px}
+  .demo-badge,.live-badge{order:3;flex:1 1 100%;white-space:normal;text-align:center;font-size:11px;line-height:1.4}
+  body.read-only .demo-badge,.live-badge{display:block}
+  /* Readable minimums */
+  .quick-commands button,.ws-src,.most small,.ns-list button,.ws-title i{font-size:11px}
+  .ws-table{font-size:12px}
+  /* Narrow tables: keep the columns that matter, the rest scroll */
+  .most th:nth-child(6),.most td:nth-child(6){display:none}
+  .omon thead tr:first-child{display:none}.omon-legend{display:block}
+  .omon th:nth-child(3),.omon td:nth-child(3),.omon th:nth-child(6),.omon td:nth-child(6),.omon th:nth-child(7),.omon td:nth-child(7),
+  .omon th:nth-child(11),.omon td:nth-child(11),.omon th:nth-child(14),.omon td:nth-child(14),.omon th:nth-child(15),.omon td:nth-child(15){display:none}
+  .ws-bar{gap:8px}.ws-bar-acts{margin-left:0;width:100%}.ws-bar-acts button{flex:1}
+  .des-top{flex-direction:column}.des-px{text-align:left}.ws-acts{margin-left:0}
+}
+@media(pointer:coarse){
+  /* Finger-sized tap targets */
+  nav button,.quick-commands button,.panelhead button,.ws-bar button,.ws-seg button,.ws-acts button,.ns-form button,.ns-list button,.ws-error button,.icon-action,.cmd-suggest div{min-height:38px}
+  .ws-tools button{width:38px;height:38px}
+  .ws-row select,.ns-form input{min-height:38px}
+}
