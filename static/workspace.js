@@ -376,7 +376,7 @@
     if (!m) return false;
     let shared;
     try { shared = decodeLayout(m[1]); } catch { shared = null; }
-    history.replaceState(null, '', location.pathname + location.search + '#ws');
+    window.history.replaceState(null, '', location.pathname + location.search + '#ws');
     if (!shared?.length) { setTimeout(() => toast('That layout link is damaged, so your own workspace is shown.'), 300); return false; }
     store.set(PREV, layout || store.get(STORE, null));
     layout = shared; save();
