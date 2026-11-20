@@ -156,11 +156,8 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
 }
 @media(pointer:coarse){
   /* No text under 11px on touch screens */
-  .fact-card>small,.filing-row small,.research-news article>div small,.move-heading em,.brief-ai h4,.tape-tile span,.tape-tile small,
-  .brief-levels th,.brief-levels td small,.econ-row small,.econ-row strong i,.econ-row>span,.geo-meta,.theme .head span,.theme time,
-  .brief-stories time,.brief-watch small,.brief-footer,.brief-session,.watch-stats small,.curve-meta,.fred-toolbar span,.fred-grid span,
-  .quick-commands span,.story .source,.most small,.ns-list button,.macro-row small,.ws-src,.ws-title i,.omon-legend{font-size:11px}
-  .move-heading b{font-size:11px}.curve-label{font-size:11px}
+  html body .fact-card>small,html body .filing-row small,html body .research-news article>div small,html body .move-heading em,html body .brief-ai h4,html body .tape-tile span,html body .tape-tile small,html body .brief-levels th,html body .brief-levels td small,html body .econ-row small,html body .econ-row strong i,html body .econ-row>span,html body .geo-meta,html body .theme .head span,html body .theme time,html body .brief-stories time,html body .brief-watch small,html body .brief-footer,html body .brief-session,html body .watch-stats small,html body .curve-meta,html body .fred-toolbar span,html body .fred-grid span,html body .quick-commands span,html body .story .source,html body .most small,html body .ns-list button,html body .macro-row small,html body .ws-src,html body .ws-title i,html body .omon-legend{font-size:11px}
+  html body .move-heading b,html body .curve-label{font-size:11px}
   body.read-only .demo-badge,body .live-badge{font-size:11px}
   .ns-list a{display:block;padding:3px 0}
 }
