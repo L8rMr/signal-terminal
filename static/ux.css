@@ -154,3 +154,13 @@ body.read-only #add-symbol,body.read-only #add-rule,body.read-only #add-feed{dis
   .ws-tools button{width:38px;height:38px}
   .ws-row select,.ns-form input{min-height:38px}
 }
+@media(pointer:coarse){
+  /* No text under 11px on touch screens */
+  .fact-card>small,.filing-row small,.research-news article>div small,.move-heading em,.brief-ai h4,.tape-tile span,.tape-tile small,
+  .brief-levels th,.brief-levels td small,.econ-row small,.econ-row strong i,.econ-row>span,.geo-meta,.theme .head span,.theme time,
+  .brief-stories time,.brief-watch small,.brief-footer,.brief-session,.watch-stats small,.curve-meta,.fred-toolbar span,.fred-grid span,
+  .quick-commands span,.story .source,.most small,.ns-list button,.macro-row small,.ws-src,.ws-title i,.omon-legend{font-size:11px}
+  .move-heading b{font-size:11px}.curve-label{font-size:11px}
+  body.read-only .demo-badge,body .live-badge{font-size:11px}
+  .ns-list a{display:block;padding:3px 0}
+}
