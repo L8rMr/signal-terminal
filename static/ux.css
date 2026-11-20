@@ -227,7 +227,7 @@ body.onboarded .quick-commands{display:none}
   header{gap:8px 12px}.brand{font-size:23px}.brand span{font-size:10px;letter-spacing:1.5px}
   .clock b{font-size:15px}
   .command-area{margin:8px 8px 4px}.commandbar{margin:8px 10px;padding:8px 10px}.prompt{font-size:22px}
-  nav#functions{position:fixed;left:0;right:0;bottom:0;z-index:60;margin:0;padding:0 4px env(safe-area-inset-bottom);gap:0;
+  nav#functions{position:fixed;top:auto;left:0;right:0;bottom:0;height:auto;max-height:64px;overflow-x:auto;overflow-y:hidden;z-index:60;margin:0;padding:0 4px env(safe-area-inset-bottom);gap:0;
     background:rgba(13,17,22,.97);border-top:1px solid var(--line);border-bottom:0;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
   nav#functions button{font-size:0;padding:14px 13px 12px;border-bottom:0;border-top:2px solid transparent;flex:0 0 auto}
   nav#functions button b{font-size:12px;margin:0}
