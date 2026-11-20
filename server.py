@@ -352,7 +352,14 @@ FRED_INDICATORS=[
     ('DCOILWTICO','WTI crude','Commodities','$/bbl','level',1),
 ]
 
-FRED_API_KEY=os.getenv('FRED_API_KEY','').strip()
+def fred_key():
+    """FRED API key from the environment, or from DATA_DIR/fred_api_key (saved on the owner page)."""
+    key=os.getenv('FRED_API_KEY','').strip()
+    if key: return key
+    try: return (DATA/'fred_api_key').read_text().strip()
+    except OSError: return ''
+
+economy_wake=threading.Event()
 
 def http_text(url,timeout=15,limit=4_000_000,accept='*/*'):
     request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0 (Signal Personal Terminal)','Accept':accept})
@@ -399,8 +406,9 @@ def keyless_rates():
 
 def fred_observations(series,limit=None):
     """[(date, value)] from the FRED API when FRED_API_KEY is set, otherwise the public CSV download."""
-    if FRED_API_KEY:
-        params={'series_id':series,'api_key':FRED_API_KEY,'file_type':'json'}
+    key=fred_key()
+    if key:
+        params={'series_id':series,'api_key':key,'file_type':'json'}
         if limit: params.update(sort_order='desc',limit=limit)
         data=json.loads(http_text('https://api.stlouisfed.org/fred/series/observations?'+urllib.parse.urlencode(params),accept='application/json'))
         values=[(o['date'],float(o['value'])) for o in data.get('observations',[]) if o.get('value') not in (None,'.','')]
@@ -769,17 +777,88 @@ def economy_loop():
                 results=[x for x in pool.map(fetch_indicator_safe,FRED_INDICATORS) if x]
             error=None
             if not results:
-                error=('FRED is not answering from this server. Set FRED_API_KEY (free at fred.stlouisfed.org) to use the official API.'
-                       if not FRED_API_KEY else 'FRED API request failed: '+next(iter(fred_errors.values()),'unknown error'))
+                error=('FRED is not answering from this server. Add a free FRED API key on the owner setup page to use the official API.'
+                       if not fred_key() else 'FRED API request failed: '+next(iter(fred_errors.values()),'unknown error'))
                 print('FRED indicators unavailable:',next(iter(fred_errors.values()),''),flush=True)
             with condition:
                 if results: state['economy']=results;state['economy_updated']=time.time()
                 state['economy_error']=error;broadcast()
         except Exception as exc: print('FRED indicator refresh incomplete',type(exc).__name__,flush=True)
-        time.sleep(900 if state['economy'] else 300)
+        economy_wake.wait(900 if state['economy'] else 300);economy_wake.clear()
 
 def public_settings():
     return {k:copy.deepcopy(config[k]) for k in ('revision','feeds','watchlist','rules')} | {'benzinga_configured':bool(config['benzinga_key'])}
+
+# ---------- abuse protection ----------
+# Endpoints that make the server call Yahoo, SEC, Cboe, Google News or a publisher.
+HEAVY_PATHS={'/api/des','/api/fa','/api/most','/api/omon','/api/ns','/api/company','/api/reader','/api/briefing/refresh'}
+RATE_CAPACITY,RATE_PER_SECOND=30,0.5      # burst of 30, then one request every 2 s per visitor
+SSE_MAX_TOTAL,SSE_MAX_PER_IP=60,4
+rate_lock=threading.Lock();rate_buckets={};sse_clients={}
+
+def rate_allow(ip):
+    """Token bucket per visitor. Returns 0 if allowed, else seconds to wait."""
+    now=time.monotonic()
+    with rate_lock:
+        tokens,last=rate_buckets.get(ip,(RATE_CAPACITY,now))
+        tokens=min(RATE_CAPACITY,tokens+(now-last)*RATE_PER_SECOND)
+        if tokens<1:
+            rate_buckets[ip]=(tokens,now);return max(1,int((1-tokens)/RATE_PER_SECOND)+1)
+        rate_buckets[ip]=(tokens-1,now)
+        if len(rate_buckets)>5000:
+            for key in sorted(rate_buckets,key=lambda k:rate_buckets[k][1])[:2500]: rate_buckets.pop(key,None)
+        return 0
+
+def sse_acquire(ip):
+    with rate_lock:
+        if sum(sse_clients.values())>=SSE_MAX_TOTAL or sse_clients.get(ip,0)>=SSE_MAX_PER_IP: return False
+        sse_clients[ip]=sse_clients.get(ip,0)+1;return True
+
+def sse_release(ip):
+    with rate_lock:
+        n=sse_clients.get(ip,0)-1
+        if n>0: sse_clients[ip]=n
+        else: sse_clients.pop(ip,None)
+
+CSP=("default-src 'self'; script-src 'self' https://s3.tradingview.com; style-src 'self' 'unsafe-inline'; "
+     "img-src 'self' data: https:; font-src 'self' data:; connect-src 'self'; "
+     "frame-src https://*.tradingview.com https://*.tradingview-widget.com; frame-ancestors 'none'; "
+     "base-uri 'self'; form-action 'self'; object-src 'none'")
+
+# ---------- asset versions ----------
+# index.html references /x.js?v=… ; the server replaces each ?v= with a hash of the file,
+# so a deploy can never serve a stale script and nobody has to bump numbers by hand.
+asset_versions={}
+def asset_version(name):
+    path=ROOT/'static'/name
+    try: stat=path.stat()
+    except OSError: return '0'
+    hit=asset_versions.get(name)
+    if hit and hit[0]==stat.st_mtime_ns: return hit[1]
+    digest=hashlib.sha1(path.read_bytes()).hexdigest()[:10]
+    asset_versions[name]=(stat.st_mtime_ns,digest);return digest
+
+def versioned_index():
+    html=(ROOT/'static'/'index.html').read_text()
+    return re.sub(r'/([A-Za-z0-9_.-]+\.(?:js|css))\?v=[A-Za-z0-9]+',lambda m:f'/{m.group(1)}?v={asset_version(m.group(1))}',html)
+
+STARTED=time.time()
+def health():
+    with condition:
+        sources=state['sources'];ok_sources=[s for s in sources if s.get('ok')]
+        failing=[s.get('name') for s in sources if not s.get('ok')]
+        rates=len(state['rates']);economy=len(state['economy'])
+        rates_age=round((time.time()-state['rates_updated'])/60) if state.get('rates_updated') else None
+        news_age=round(time.time()-state['updated']) if state.get('updated') else None
+    problems=[]
+    if sources and len(failing)>1: problems.append(f'{len(failing)} news sources down')
+    if news_age is not None and news_age>INTERVAL*6: problems.append('news polling stalled')
+    if not rates: problems.append('rates unavailable')
+    if not economy: problems.append('economic data unavailable')
+    return {'ok':True,'status':'degraded' if problems else 'ok','problems':problems,'version':state['version'],
+            'uptime_minutes':round((time.time()-STARTED)/60),
+            'sources':{'ok':len(ok_sources),'total':len(sources),'failing':failing,'last_poll_seconds':news_age},
+            'rates':{'series':rates,'age_minutes':rates_age},'economy':{'series':economy,'error':state.get('economy_error')}}
 
 OWNER_COOKIE='signal_owner'
 owner_key=''
@@ -986,7 +1065,20 @@ class Handler(SimpleHTTPRequestHandler):
         except OSError: return self.reply({'error':'Not found.'},404)
         self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     def end_headers(self):
-        self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer');self.send_header('X-Frame-Options','DENY');super().end_headers()
+        self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer');self.send_header('X-Frame-Options','DENY')
+        self.send_header('Content-Security-Policy',CSP);self.send_header('Permissions-Policy','camera=(), microphone=(), geolocation=()')
+        if self.public_request(): self.send_header('Strict-Transport-Security','max-age=31536000')
+        if getattr(self,'static_cache',None): self.send_header('Cache-Control',self.static_cache)
+        super().end_headers()
+    def client_ip(self): return (self.headers.get('Cf-Connecting-Ip') or self.client_address[0] or '').strip()
+    def throttled(self):
+        """429 for visitors who call the expensive endpoints too fast. The owner is never throttled."""
+        if self.is_owner(): return False
+        wait=rate_allow(self.client_ip())
+        if not wait: return False
+        payload=json.dumps({'error':'Too many requests. Wait a few seconds and try again.'}).encode()
+        self.send_response(429);self.send_header('Retry-After',str(wait));self.send_header('Content-Type','application/json');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
+        return True
     def reply(self,obj,status=200):
         payload=json.dumps(obj).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     def do_POST(self):
@@ -1008,10 +1100,15 @@ class Handler(SimpleHTTPRequestHandler):
                 body=self.json_body()
                 if path=='/api/owner/schwab/keys': schwab.set_keys(body.get('app_key'),body.get('app_secret'),body.get('callback'))
                 elif path=='/api/owner/schwab/connect': schwab.connect(body.get('url'))
+                elif path=='/api/owner/schwab/fred':
+                    key=str(body.get('key','')).strip().lower()
+                    if not re.fullmatch(r'[a-z0-9]{32}',key): raise ValueError('A FRED API key is 32 letters and digits.')
+                    target=DATA/'fred_api_key';target.write_text(key);os.chmod(target,0o600);economy_wake.set()
                 else: return self.reply({'error':'Not found.'},404)
                 return self.private_reply({'schwab':schwab.status()})
             except (ValueError,TypeError) as exc: return self.private_reply({'error':str(exc)[:240]},400)
             except (urllib.error.URLError,TimeoutError,OSError): return self.private_reply({'error':'Could not reach Schwab. Try again.'},503)
+        if self.path=='/api/briefing/refresh' and self.throttled(): return
         if self.path=='/api/briefing/refresh':
             with condition:
                 old_updated=state.get('updated');old_ids={a['id'] for a in state['articles']}
@@ -1051,6 +1148,10 @@ class Handler(SimpleHTTPRequestHandler):
         if not self.local_request() and not public: return self.reply({'error':'Local access only.'},403)
         path=urllib.parse.urlparse(self.path).path
         owner=self.is_owner()
+        if path in HEAVY_PATHS and self.throttled(): return
+        if path in ('/','/index.html'):
+            payload=versioned_index().encode();self.send_response(200);self.send_header('Content-Type','text/html; charset=utf-8')
+            self.send_header('Cache-Control','no-cache');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload);return
         if path=='/api/settings':
             with condition: self.reply(public_settings()|({'csrf':csrf,'owner':True} if owner else {'read_only':True}))
         elif path=='/owner':
@@ -1063,7 +1164,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif path=='/api/owner/setup':
             if not self.local_request(): return self.reply({'error':'Not found.'},404)
             hosts=sorted(PUBLIC_HOSTS)
-            self.private_reply({'owner_link':(f'https://{hosts[0]}/login#key={owner_key}' if hosts else None),'owner_key':owner_key,'schwab':schwab.status(),'csrf':csrf})
+            self.private_reply({'owner_link':(f'https://{hosts[0]}/login#key={owner_key}' if hosts else None),'owner_key':owner_key,'schwab':schwab.status(),'csrf':csrf,
+                                'fred':{'configured':bool(fred_key()),'from_env':bool(os.getenv('FRED_API_KEY','').strip()),'series':len(state['economy']),'error':state.get('economy_error')}})
         elif path=='/api/owner/schwab/authorize':
             if not self.local_request(): return self.reply({'error':'Not found.'},404)
             try: self.private_reply({'url':schwab.authorize_url()})
@@ -1110,9 +1212,12 @@ class Handler(SimpleHTTPRequestHandler):
             except (urllib.error.URLError,TimeoutError,LookupError,UnicodeError): self.reply({'error':'The publisher page could not be loaded. Open the original article instead.'},503)
         elif path=='/api/economy':
             with condition: self.reply({'economy':copy.deepcopy(state['economy']),'updated':state['economy_updated']})
-        elif path in ('/api/news','/health'):
-            with condition: self.reply(state if path=='/api/news' else {'ok':True,'version':state['version']})
+        elif path=='/health': self.reply(health())
+        elif path=='/api/news':
+            with condition: self.reply(state)
         elif path=='/api/events':
+            ip=self.client_ip()
+            if not owner and not sse_acquire(ip): return self.reply({'error':'Too many live connections. Close other Signal tabs and reload.'},429)
             self.send_response(200);self.send_header('Content-Type','text/event-stream');self.send_header('Cache-Control','no-cache');self.end_headers()
             version=-1
             try:
@@ -1121,9 +1226,16 @@ class Handler(SimpleHTTPRequestHandler):
                         if version==state['version']: condition.wait(timeout=15)
                         payload=json.dumps(event_payload(version)) if version!=state['version'] else None;version=state['version']
                     self.wfile.write(('data: '+payload+'\n\n' if payload else ': heartbeat\n\n').encode());self.wfile.flush()
-            except (BrokenPipeError,ConnectionResetError,TimeoutError): pass
+            except (BrokenPipeError,ConnectionResetError,TimeoutError,OSError): pass
+            finally:
+                if not owner: sse_release(ip)
         elif path.startswith('/api/'): self.reply({'error':'Not found.'},404)
-        else: super().do_GET()
+        else:
+            # Versioned assets (?v=<hash>) never change, so browsers and Cloudflare may keep them.
+            query=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('v',[''])[0]
+            name=path.lstrip('/')
+            self.static_cache='public, max-age=31536000, immutable' if query and '/' not in name and query==asset_version(name) else 'no-cache'
+            super().do_GET()
 
 if __name__=='__main__':
     load()

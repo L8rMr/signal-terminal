@@ -13,7 +13,7 @@
 (() => {
   const $ = s => document.querySelector(s);
   const escH = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'}[c]));
-  const STORE = 'signal.ws.v1', HIST = 'signal.cmd.history.v1';
+  const STORE = 'signal.ws.v2', PREV = 'signal.ws.prev', HIST = 'signal.cmd.history.v1';
   const store = {
     get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
@@ -30,7 +30,12 @@
   };
   const VIEW_CODES = {BRIEF: 'Daily market brief', ANLY: 'Brief analytics', TOP: 'Ranked news', EDGAR: 'Company research (EDGAR)', GMM: 'Global macro movers', BTMM: 'Rates & money markets', FRED: 'Economic data', MON: 'Watchlist', ALRT: 'Alerts', SET: 'Sources', WS: 'Workspace'};
   const NOISE = new Set(['US', 'EQUITY', 'EQUITIES', '<GO>', 'GO']);
-  const TV_SYMBOLS = {SPX: 'SP:SPX', NDX: 'NASDAQ:NDX', DJI: 'TVC:DJI', RUT: 'TVC:RUT', VIX: 'TVC:VIX'};
+  const TV_SYMBOLS = {SPX: 'SP:SPX', NDX: 'NASDAQ:NDX', DJI: 'TVC:DJI', RUT: 'TVC:RUT', VIX: 'TVC:VIX', US10Y: 'TVC:US10Y', EURUSD: 'FX:EURUSD',
+    USDJPY: 'FX:USDJPY', DXY: 'TVC:DXY', GOLD: 'TVC:GOLD', WTI: 'TVC:USOIL', BTC: 'BITSTAMP:BTCUSD', NKY: 'TVC:NI225', UKX: 'TVC:UKX'};
+  // Link groups: windows that share a colour follow the same ticker (Bloomberg-style).
+  const LINKS = ['a', 'b', 'c', 'd'];
+  const LINK_NAMES = {a: 'amber', b: 'blue', c: 'green', d: 'violet'};
+  const TICKER_RE = /^[A-Z][A-Z0-9.\-]{0,11}$/;
 
   // ---------- formatting ----------
   const num = (v, d = 2) => v == null || isNaN(v) ? '—' : Number(v).toLocaleString('en-US', {minimumFractionDigits: d, maximumFractionDigits: d});
@@ -77,16 +82,16 @@
     const W = Math.max(900, (canvas()?.clientWidth || 1200) - 24), gap = 10;
     const wins = W >= 1500
       ? (() => { const a = Math.round(W * 0.32), b = Math.round(W * 0.36), c = W - a - b - gap * 2; return [
-          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 520}, {fn: 'G', arg: 'SPY', x: a + gap, y: 0, w: b, h: 520},
-          {fn: 'NS', arg: 'Federal Reserve', x: a + b + gap * 2, y: 0, w: c, h: 520},
-          {fn: 'DES', arg: 'NVDA', x: 0, y: 530, w: a + b + gap, h: 460}, {fn: 'OMON', arg: 'SPY', x: a + b + gap * 2, y: 530, w: c, h: 460}]; })()
+          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 520, link: 'a'}, {fn: 'G', arg: 'NVDA', x: a + gap, y: 0, w: b, h: 520, link: 'a'},
+          {fn: 'NS', arg: 'NVDA', x: a + b + gap * 2, y: 0, w: c, h: 520, link: 'a'},
+          {fn: 'DES', arg: 'NVDA', x: 0, y: 530, w: a + b + gap, h: 460, link: 'a'}, {fn: 'OMON', arg: 'NVDA', x: a + b + gap * 2, y: 530, w: c, h: 460, link: 'a'}]; })()
       : (() => { const a = Math.round(W * 0.42), b = W - a - gap; return [
-          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 500}, {fn: 'G', arg: 'SPY', x: a + gap, y: 0, w: b, h: 500},
-          {fn: 'NS', arg: 'Federal Reserve', x: 0, y: 510, w: a, h: 460}, {fn: 'DES', arg: 'NVDA', x: a + gap, y: 510, w: b, h: 460}]; })();
+          {fn: 'MOST', arg: 'ACTIVE', x: 0, y: 0, w: a, h: 500, link: 'a'}, {fn: 'G', arg: 'NVDA', x: a + gap, y: 0, w: b, h: 500, link: 'a'},
+          {fn: 'NS', arg: 'NVDA', x: 0, y: 510, w: a, h: 460, link: 'a'}, {fn: 'DES', arg: 'NVDA', x: a + gap, y: 510, w: b, h: 460, link: 'a'}]; })();
     return wins.map((w, i) => ({...w, id: 'w' + Date.now().toString(36) + i, z: i + 1}));
   }
 
-  function open(fn, arg) {
+  function open(fn, arg, link) {
     if (fn === 'WS') { showWorkspace(); return; }
     showWorkspace();
     const spec = FUNCS[fn];
@@ -94,7 +99,7 @@
     if (existing) { focus(existing.id, true); return; }
     const n = layout.length, el = canvas();
     const maxX = Math.max(0, (el?.clientWidth || 1200) - spec.w);
-    const win = {id: 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fn, arg,
+    const win = {id: 'w' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fn, arg, link: LINKS.includes(link) ? link : null,
       x: Math.min(maxX, 30 + (n % 6) * 34), y: (el?.scrollTop || 0) + 20 + (n % 6) * 30, w: spec.w, h: spec.h, z: ++zTop};
     layout.push(win); save(); mount(win); focus(win.id, true);
   }
@@ -113,9 +118,48 @@
     emptyHint();
   }
 
+  function paintLink(w, el) {
+    const b = el.querySelector('[data-ws=link]');
+    el.dataset.link = w.link || '';
+    b.title = w.link ? `Linked (${LINK_NAMES[w.link]}): windows of this colour follow the same ticker. Click to change.` : 'Not linked. Click to link this window to a colour group.';
+  }
+
+  function editTicker(w, el) {
+    const btn = el.querySelector('[data-ws=ticker]'); if (!btn) return;
+    const input = document.createElement('input');
+    input.className = 'ws-tkr-input'; input.value = w.arg; input.maxLength = 12; input.setAttribute('aria-label', 'Ticker');
+    btn.replaceWith(input); input.focus(); input.select();
+    let done = false;
+    const finish = commit => {
+      if (done) return; done = true;
+      const v = input.value.trim().toUpperCase();
+      if (commit && TICKER_RE.test(v) && v !== w.arg) setTicker(w, v, true);
+      else el.querySelector('.ws-title').innerHTML = title(w);
+    };
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') finish(true); if (e.key === 'Escape') finish(false); e.stopPropagation(); });
+    input.addEventListener('blur', () => finish(true));
+  }
+
+  // Change a window's ticker; with propagate, every window in its colour group follows.
+  function setTicker(w, sym, propagate) {
+    const targets = propagate && w.link ? layout.filter(x => x.link === w.link) : [w];
+    for (const t of targets) {
+      const spec = FUNCS[t.fn];
+      if (!(spec?.ticker || t.fn === 'NS') || (t.arg === sym && t !== w)) continue;
+      t.arg = sym; if (t.fn === 'OMON') t.expiry = null;
+      const el = document.getElementById(t.id); if (!el) continue;
+      el.querySelector('.ws-title').innerHTML = title(t);
+      el.classList.remove('ws-pop'); void el.offsetWidth; el.classList.add('ws-pop');
+      render(t, el, true);
+    }
+    save();
+  }
+
+  function linkedTickerWindows(group) { return group ? layout.filter(x => x.link === group && FUNCS[x.fn]?.ticker) : []; }
+
   function title(w) {
     const spec = FUNCS[w.fn];
-    if (spec.ticker) return `<b>${escH(w.arg)}</b> <i>US EQUITY</i> <span>${w.fn}</span> <em>${escH(spec.name)}</em>`;
+    if (spec.ticker) return `<button class="ws-tkr" data-ws="ticker" title="Change ticker">${escH(w.arg)}</button> <i>US EQUITY</i> <span>${w.fn}</span> <em>${escH(spec.name)}</em>`;
     if (w.fn === 'NS') return `<span>NS</span> <em>“${escH(w.arg)}”</em>`;
     if (w.fn === 'MOST') return `<span>MOST</span> <em>${escH(w.arg === 'ACTIVE' ? 'Most active' : w.arg === 'GAINERS' ? 'Top gainers' : 'Top losers')}</em>`;
     return `<span>${w.fn}</span> <em>${escH(spec.name)}</em>`;
@@ -125,11 +169,19 @@
     const el = document.createElement('section');
     el.className = 'ws-win'; el.id = w.id; el.dataset.fn = w.fn;
     Object.assign(el.style, {left: w.x + 'px', top: w.y + 'px', width: w.w + 'px', height: w.h + 'px', zIndex: w.z || 1});
-    el.innerHTML = `<header class="ws-head"><div class="ws-title">${title(w)}</div><div class="ws-tools"><button data-ws="refresh" title="Refresh" aria-label="Refresh">↻</button><button data-ws="close" title="Close" aria-label="Close window">×</button></div></header><div class="ws-body"><div class="ws-loading">LOADING…</div></div><div class="ws-grip" aria-hidden="true"></div>`;
+    el.innerHTML = `<header class="ws-head"><div class="ws-title">${title(w)}</div><div class="ws-tools"><button data-ws="link" class="ws-link" aria-label="Link group"></button><button data-ws="refresh" title="Refresh" aria-label="Refresh">↻</button><button data-ws="close" title="Close" aria-label="Close window">×</button></div></header><div class="ws-body"><div class="ws-loading">LOADING…</div></div><div class="ws-grip" aria-hidden="true"></div>`;
     canvas().appendChild(el); emptyHint();
     el.addEventListener('pointerdown', () => focus(w.id));
     el.querySelector('[data-ws=close]').onclick = e => { e.stopPropagation(); close(w.id); };
     el.querySelector('[data-ws=refresh]').onclick = () => render(w, el, true);
+    paintLink(w, el);
+    el.querySelector('[data-ws=link]').onclick = e => {
+      e.stopPropagation();
+      w.link = LINKS[(LINKS.indexOf(w.link) + 2) % (LINKS.length + 1) - 1] || null; save(); paintLink(w, el);
+      const peer = w.link && layout.find(x => x !== w && x.link === w.link && FUNCS[x.fn]?.ticker);
+      if (peer && FUNCS[w.fn].ticker && peer.arg !== w.arg) setTicker(w, peer.arg, false);
+    };
+    el.querySelector('.ws-title').addEventListener('click', e => { if (e.target.closest('[data-ws=ticker]')) editTicker(w, el); });
     dragger(el.querySelector('.ws-head'), (dx, dy, start) => { w.x = Math.max(0, start.x + dx); w.y = Math.max(0, start.y + dy); el.style.left = w.x + 'px'; el.style.top = w.y + 'px'; }, () => ({x: w.x, y: w.y}));
     dragger(el.querySelector('.ws-grip'), (dx, dy, start) => { w.w = Math.max(320, start.w + dx); w.h = Math.max(220, start.h + dy); el.style.width = w.w + 'px'; el.style.height = w.h + 'px'; }, () => ({w: w.w, h: w.h}));
     render(w, el);
@@ -233,13 +285,17 @@
   function renderMOST(w, body, d) {
     const maxR = Math.max(1, ...d.rows.map(r => r.rvol || 0));
     const rows = d.rows.map(r => `<tr data-sym="${escH(r.symbol)}"><td><b>${escH(r.symbol)}</b><small>${escH(r.name)}</small></td><td>${num(r.price)}</td><td class="${tone(r.change_pct)}">${pctv(r.change_pct)}</td><td>${big(r.volume)}</td><td><div class="rvol"><i style="width:${Math.min(100, (r.rvol || 0) / maxR * 100)}%"></i><span>${r.rvol != null ? r.rvol.toFixed(1) + '×' : '—'}</span></div></td><td>${big(r.market_cap)}</td></tr>`).join('');
-    body.innerHTML = `<div class="ws-pad"><div class="ws-row"><div class="ws-seg">${['ACTIVE', 'GAINERS', 'LOSERS'].map(k => `<button data-k="${k}" class="${w.arg === k ? 'on' : ''}">${k}</button>`).join('')}</div><span class="muted">updated ${new Date(d.at * 1000).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'})} · click a row</span></div>
+    body.innerHTML = `<div class="ws-pad"><div class="ws-row"><div class="ws-seg">${['ACTIVE', 'GAINERS', 'LOSERS'].map(k => `<button data-k="${k}" class="${w.arg === k ? 'on' : ''}">${k}</button>`).join('')}</div><span class="muted">updated ${new Date(d.at * 1000).toLocaleTimeString('en-US', {hour: 'numeric', minute: '2-digit'})} · ${linkedTickerWindows(w.link).length ? 'click a row to load it in linked windows' : 'click a row'}</span></div>
       <div class="ws-scroll"><table class="ws-table most"><thead><tr><th>SYMBOL</th><th>LAST</th><th>CHG</th><th>VOLUME</th><th>RVOL</th><th>MKT CAP</th></tr></thead><tbody>${rows || '<tr><td colspan="6" class="muted">No data right now.</td></tr>'}</tbody></table></div>
       <p class="ws-src">${escH(d.source)} · RVOL = today's volume ÷ 3-month average</p></div>`;
     body.querySelectorAll('[data-k]').forEach(b => b.onclick = () => {
       w.arg = b.dataset.k; save(); const el = b.closest('.ws-win'); el.querySelector('.ws-title').innerHTML = title(w); render(w, el, true);
     });
-    body.querySelectorAll('tr[data-sym]').forEach(tr => tr.onclick = e => open(e.shiftKey ? 'G' : 'DES', tr.dataset.sym));
+    body.querySelectorAll('tr[data-sym]').forEach(tr => tr.onclick = e => {
+      const sym = tr.dataset.sym;
+      if (!e.shiftKey && linkedTickerWindows(w.link).length) { setTicker(w, sym, true); return; }
+      open(e.shiftKey ? 'G' : 'DES', sym, w.link);
+    });
   }
 
   function renderNS(w, body, d) {
@@ -273,6 +329,63 @@
     if (atmRow && scroller) scroller.scrollTop = Math.max(0, atmRow.offsetTop - scroller.clientHeight / 2);
   }
 
+  // ---------- shareable layouts ----------
+  // A layout travels in the URL fragment (#ws=…), which never reaches the server.
+  // Everything decoded is validated, so a crafted link can only produce ordinary windows.
+  const b64u = str => btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const unb64u = str => decodeURIComponent(escape(atob(str.replace(/-/g, '+').replace(/_/g, '/'))));
+  const clamp = (v, lo, hi, d) => Number.isFinite(+v) ? Math.min(hi, Math.max(lo, Math.round(+v))) : d;
+
+  function encodeLayout() {
+    return b64u(JSON.stringify(layout.map(w => [w.fn, w.arg ?? '', w.x, w.y, w.w, w.h, w.link || '', w.periods || '', w.expiry || ''])));
+  }
+  function decodeLayout(code) {
+    const rows = JSON.parse(unb64u(code));
+    if (!Array.isArray(rows)) throw new Error('bad layout');
+    return rows.slice(0, 20).map((r, i) => {
+      const [fn, arg, x, y, w, h, link, periods, expiry] = r;
+      const spec = FUNCS[fn]; if (!spec) return null;
+      let a = String(arg || '').slice(0, 80);
+      if (spec.ticker && !TICKER_RE.test(a.toUpperCase())) return null;
+      if (spec.ticker) a = a.toUpperCase();
+      if (fn === 'MOST' && !['ACTIVE', 'GAINERS', 'LOSERS'].includes(a)) a = 'ACTIVE';
+      if (fn === 'NS' && !a.trim()) a = 'stock market';
+      return {id: 'w' + Date.now().toString(36) + i, fn, arg: a, x: clamp(x, 0, 6000, 0), y: clamp(y, 0, 6000, 0),
+        w: clamp(w, 320, 3000, spec.w), h: clamp(h, 220, 2000, spec.h), z: i + 1, link: LINKS.includes(link) ? link : null,
+        periods: periods === 'quarter' ? 'quarter' : null, expiry: /^\d{4}-\d{2}-\d{2}$/.test(expiry || '') ? expiry : null};
+    }).filter(Boolean);
+  }
+
+  function toast(html, actions = []) {
+    document.querySelector('.ws-toast')?.remove();
+    const t = document.createElement('div'); t.className = 'ws-toast'; t.setAttribute('role', 'status');
+    t.innerHTML = `<span>${html}</span>` + actions.map((a, i) => `<button data-t="${i}">${escH(a.label)}</button>`).join('') + '<button data-t="x" aria-label="Dismiss">×</button>';
+    document.body.appendChild(t);
+    t.addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (!b) return; if (b.dataset.t !== 'x') actions[+b.dataset.t].run(); t.remove(); });
+    setTimeout(() => t.remove(), 9000);
+  }
+
+  async function shareLayout() {
+    const url = `${location.origin}/#ws=${encodeLayout()}`;
+    try { await navigator.clipboard.writeText(url); toast(`Layout link copied · ${layout.length} windows. Anyone who opens it gets this exact workspace.`); }
+    catch { toast(`Copy this link: <input class="ws-toast-link" value="${escH(url)}" readonly>`); document.querySelector('.ws-toast-link')?.select(); }
+  }
+
+  function loadSharedLayout() {
+    const m = location.hash.match(/^#ws=([A-Za-z0-9_-]{4,6000})$/);
+    if (!m) return false;
+    let shared;
+    try { shared = decodeLayout(m[1]); } catch { shared = null; }
+    history.replaceState(null, '', location.pathname + location.search + '#ws');
+    if (!shared?.length) { setTimeout(() => toast('That layout link is damaged, so your own workspace is shown.'), 300); return false; }
+    store.set(PREV, layout || store.get(STORE, null));
+    layout = shared; save();
+    setTimeout(() => toast(`Opened a shared layout · ${shared.length} windows.`, [{label: 'UNDO', run: () => {
+      const prev = store.get(PREV, null); layout = prev || defaultLayout(); save(); buildCanvas();
+    }}]), 400);
+    return true;
+  }
+
   // ---------- view + chrome ----------
   function showWorkspace() {
     if (typeof openView === 'function') openView('ws');
@@ -289,7 +402,12 @@
 
   document.addEventListener('click', e => {
     const b = e.target.closest('[data-open-fn]');
-    if (b) { e.preventDefault(); open(b.dataset.openFn, b.dataset.arg); }
+    if (b) {
+      e.preventDefault();
+      const host = layout?.find(x => x.id === b.closest('.ws-win')?.id);
+      open(b.dataset.openFn, b.dataset.arg, host?.link);
+    }
+    if (e.target.closest('[data-ws-share]')) shareLayout();
     if (e.target.closest('[data-ws-reset]')) { [...document.querySelectorAll('.ws-win')].forEach(x => { clearInterval(x._timer); x.remove(); }); layout = defaultLayout(); save(); buildCanvas(); }
   });
 
@@ -370,5 +488,6 @@
       if (view === 'ws') { const n = $('#workspace-name'); if (n) n.textContent = '11 / WORKSPACE'; if (!built) { built = true; buildCanvas(); } }
     };
   }
-  if (location.hash === '#ws') showWorkspace();
+  if (loadSharedLayout()) { built = false; showWorkspace(); }
+  else if (location.hash === '#ws') showWorkspace();
 })();

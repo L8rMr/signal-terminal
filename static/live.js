@@ -26,6 +26,9 @@
   function tapeTiles() {
     return [...document.querySelectorAll('#brief-tape .tape-tile')].map(el => ({el, code: (el.querySelector('span')?.textContent || '').trim().split(/\s+/)[0]}));
   }
+  function stripItems() {
+    return [...document.querySelectorAll('#tkr .tkr-item')].map(el => ({el, code: el.dataset.code || ''}));
+  }
   function watchRows() {
     return [...document.querySelectorAll('#watchlist .watch-row')].map(el => ({el, code: (el.querySelector('.ticker b')?.textContent || '').trim()}));
   }
@@ -51,6 +54,14 @@
       if (chg) { setText(chg, pct(q.change_pct)); chg.className = tone(q.change_pct); }
       flash(el, code, q.price);
     }
+    for (const {el, code} of stripItems()) {
+      const q = quotes[code];
+      if (!q) continue;
+      el.classList.add('live');
+      setText(el.querySelector('.v'), fmt(q.price, Math.abs(q.price) >= 1000 ? 0 : 2));
+      const chg = el.querySelector('em');
+      if (chg) { setText(chg, pct(q.change_pct)); chg.className = tone(q.change_pct); }
+    }
     for (const {el, code} of watchRows()) {
       const q = quotes[code];
       const stats = el.querySelector('.watch-stats');
@@ -67,7 +78,7 @@
   async function poll() {
     clearTimeout(timer);
     if (document.hidden) { timer = setTimeout(poll, POLL_MS); return; }
-    const codes = [...new Set([...tapeTiles(), ...watchRows()].map(x => x.code).filter(Boolean))];
+    const codes = [...new Set([...tapeTiles(), ...watchRows(), ...stripItems()].map(x => x.code).filter(Boolean))];
     if (codes.length) {
       try {
         const r = await fetch('/api/live/quotes?codes=' + encodeURIComponent(codes.join(',')), {cache: 'no-store', credentials: 'same-origin'});
@@ -95,7 +106,9 @@
     }
     const days = Math.floor((s.schwab.refresh_expires * 1000 - Date.now()) / 86400000);
     if (days <= 1) console.info('Schwab sign-in expires within a day; reconnect at /owner on the host PC.');
-    new MutationObserver(apply).observe(document.querySelector('#terminal'), {childList: true, subtree: true});
+    const observer = new MutationObserver(apply);
+    observer.observe(document.querySelector('#terminal'), {childList: true, subtree: true});
+    const tkr = document.querySelector('#tkr'); if (tkr) observer.observe(tkr, {childList: true, subtree: true});
     poll();
   }
 

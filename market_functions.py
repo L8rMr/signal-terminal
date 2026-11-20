@@ -16,14 +16,38 @@ _cache = {}
 _yahoo = {'opener': None, 'crumb': None, 'expires': 0}
 
 
-def _cached(key, ttl, fn):
-    now = time.time()
-    hit = _cache.get(key)
-    if hit and hit[0] > now: return hit[1]
-    value = fn()
-    _cache[key] = (now + ttl, value)
+_key_locks = {}
+
+
+class _Failure:
+    def __init__(self, exc): self.exc = exc
+
+
+def _cached(key, ttl, fn, fail_ttl=20):
+    """Cache fn() for ttl seconds. Concurrent callers for the same key wait for one
+    upstream request instead of each making their own, and a failure is remembered
+    for fail_ttl seconds so a broken source isn't hammered."""
+    def hit():
+        h = _cache.get(key)
+        if h and h[0] > time.time():
+            if isinstance(h[1], _Failure): raise h[1].exc
+            return True, h[1]
+        return False, None
+    found, value = hit()
+    if found: return value
+    with _lock: key_lock = _key_locks.setdefault(key, threading.Lock())
+    with key_lock:
+        found, value = hit()
+        if found: return value
+        try: value = fn()
+        except Exception as exc:
+            _cache[key] = (time.time() + fail_ttl, _Failure(exc)); raise
+        _cache[key] = (time.time() + ttl, value)
     if len(_cache) > 400:
         for k in sorted(_cache, key=lambda k: _cache[k][0])[:150]: _cache.pop(k, None)
+    if len(_key_locks) > 800:
+        with _lock:
+            for k in [k for k in _key_locks if k not in _cache][:400]: _key_locks.pop(k, None)
     return value
 
 
