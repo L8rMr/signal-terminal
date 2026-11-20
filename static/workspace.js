@@ -417,6 +417,7 @@
   const history = store.get(HIST, []);
   window.executeCommand = executeCommand = function (raw) {
     const text = String(raw || '').trim(); if (!text) return;
+    if (!document.body.classList.contains('onboarded')) { document.body.classList.add('onboarded'); try { localStorage.setItem('signal.onboarded', '1'); } catch {} }
     if (history[history.length - 1] !== text) { history.push(text); if (history.length > 50) history.shift(); store.set(HIST, history); }
     const cmd = parse(text);
     if (cmd) return open(cmd.fn, cmd.arg);
@@ -475,6 +476,9 @@
     }
     if (e.key === 'Escape') { items = []; paint(); }
   }, true);
+
+  // Quick-start chips are training wheels: once someone has run a command they go away.
+  try { if (localStorage.getItem('signal.onboarded') === '1') document.body.classList.add('onboarded'); } catch {}
 
   // Quick-start chips for the new functions
   const quick = document.querySelector('.quick-commands');

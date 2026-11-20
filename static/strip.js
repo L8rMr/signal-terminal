@@ -14,7 +14,7 @@
   strip.id = 'tkr';
   strip.className = 'tkr';
   strip.setAttribute('aria-label', 'Market tape. Select an item to open its chart.');
-  strip.innerHTML = '<div class="tkr-track"><span class="tkr-wait">LOADING MARKET TAPE…</span></div>';
+  strip.innerHTML = '<span class="tkr-session" role="status">●</span><div class="tkr-view"><div class="tkr-track"><span class="tkr-wait">LOADING MARKET TAPE…</span></div></div>';
   header.after(strip);
 
   const fmt = item => {
@@ -37,11 +37,26 @@
     strip.style.setProperty('--tkr-duration', Math.max(30, Math.round(run.scrollWidth / 40)) + 's');
   }
 
+  // Session marker. Outside regular hours, prices across the terminal dim slightly so
+  // it's obvious at a glance that the numbers are not moving.
+  function setSession(s) {
+    if (!s) return;
+    const holiday = s.phase === 'open' && !s.bar_today;
+    const [label, kind] = holiday ? ['CLOSED · HOLIDAY', 'closed']
+      : {open: ['OPEN', 'open'], 'pre-market': ['PRE-MARKET', 'ext'], 'after-hours': ['AFTER HOURS', 'ext'],
+         overnight: ['CLOSED', 'closed'], closed: ['CLOSED', 'closed'], weekend: ['WEEKEND', 'closed']}[s.phase] || ['—', 'closed'];
+    const el = strip.querySelector('.tkr-session');
+    el.textContent = '● ' + label;
+    el.className = 'tkr-session ' + kind;
+    el.title = (kind === 'open' ? 'US stock market is open. ' : 'US stock market is not in regular hours. ') + (s.note || '');
+    document.documentElement.dataset.session = kind;
+  }
+
   async function load() {
     try {
       const r = await fetch('/api/markets', {cache: 'no-store'});
       const d = await r.json();
-      if (r.ok && d.items?.length) render(d.items);
+      if (r.ok && d.items?.length) { render(d.items); setSession(d.session); }
       else if (!lastItems) strip.querySelector('.tkr-track').innerHTML = '<span class="tkr-wait">MARKET TAPE UNAVAILABLE · RETRYING</span>';
     } catch {}
   }
@@ -51,6 +66,24 @@
   });
   load();
   setInterval(() => { if (!document.hidden) load(); }, 60000);
+
+  // ---------- CRT mode ----------
+  // Optional amber-phosphor look: warm text with a faint glow, scanlines and a soft
+  // vignette. Up/down colours are kept so prices stay readable. Remembered per browser.
+  const crtKey = 'signal.crt';
+  const crtOn = () => { try { return localStorage.getItem(crtKey) === '1'; } catch { return false; } };
+  const setCrt = on => {
+    document.documentElement.classList.toggle('crt', on);
+    try { localStorage.setItem(crtKey, on ? '1' : '0'); } catch {}
+    crtBtn.textContent = on ? '◉ CRT ON' : '◐ CRT MODE';
+    crtBtn.setAttribute('aria-pressed', String(on));
+  };
+  const crtBtn = document.createElement('button');
+  crtBtn.type = 'button'; crtBtn.className = 'crt-toggle';
+  crtBtn.title = 'Amber phosphor display';
+  crtBtn.addEventListener('click', () => setCrt(!document.documentElement.classList.contains('crt')));
+  document.querySelector('footer')?.append(crtBtn);
+  setCrt(crtOn());
 
   // ---------- footer status light ----------
   const footer = document.querySelector('footer');

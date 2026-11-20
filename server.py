@@ -1191,7 +1191,11 @@ class Handler(SimpleHTTPRequestHandler):
             except (urllib.error.URLError,TimeoutError,OSError,ValueError): self.private_reply({'error':'Schwab could not be reached.','quotes':{}},503)
         elif path=='/api/briefing': self.reply(build_briefing())
         elif path=='/api/markets':
-            try: self.reply(market_snapshot())
+            try:
+                snap=market_snapshot()
+                # Same session logic as the brief: weekday clock plus whether today's S&P bar exists (catches holidays).
+                snap['session']=brief_engine.session_state(datetime.datetime.now(brief_engine.NY),{i['code']:i for i in snap['items']})
+                self.reply(snap)
             except LookupError as exc: self.reply({'error':str(exc)},503)
         elif path=='/api/company':
             query=urllib.parse.parse_qs(urllib.parse.urlparse(self.path).query).get('symbol',[''])[0]
