@@ -25,6 +25,22 @@ Each view has a short function code that can be typed into the command line at t
 | `ALRT` | Alert rules on keywords, the watchlist, or a market condition from the brief (for example VIX above 20). |
 | `SET` | Feed list with enable/disable controls and connection health. |
 
+### WS workspace (Godel / Bloomberg-style functions)
+
+`WS` opens a windowed workspace. Every function below opens as a window you can drag by its title bar and resize from the corner; the layout is saved in your browser. The command line takes `TICKER FUNCTION`, and the Godel form `AAPL US Equity DES` works too. Suggestions appear as you type (`Tab` accepts one) and `↑` recalls history.
+
+| Command | Window | Source |
+| --- | --- | --- |
+| `AAPL DES` | Profile, valuation, 52-week range, analyst targets, next earnings | Yahoo Finance (delayed) |
+| `AAPL FA` | Five years or eight quarters of income statement, balance sheet, cash flow and margins, with trend sparklines | SEC EDGAR XBRL |
+| `AAPL G` | Interactive chart | TradingView widget |
+| `AAPL OMON` | Option chain with IV, delta and open interest, 40 strikes around the money | Cboe delayed quotes (~15 min) |
+| `MOST`, `MOST GAINERS`, `MOST LOSERS` | Most active stocks with relative volume; click a row for DES, shift-click for a chart | Yahoo Finance screener |
+| `NS fed rate cut` | Every headline in Signal's feeds plus Google News matching all the words, past 7 days | RSS + Google News |
+| `HELP` | Function list | |
+
+Quarterly cash flows are filed year-to-date, so FA derives each quarter as the difference between consecutive year-to-date figures, and fiscal Q4 as the full year minus nine months.
+
 Typing a US ticker such as `AAPL` opens company research. Selecting a headline opens a built-in reader where the publisher allows extraction.
 
 The brief (`brief.py`) is rules-based. It scores trend, momentum, volatility, credit, breadth, participation, rotation, rate shock and the dollar, merges near-duplicate headlines, and keeps one snapshot per day so it can report what changed. It is research output, not investment advice.
@@ -108,7 +124,8 @@ Feeds, the watchlist and alert rules are edited in the app.
 - Single user, no login. Settings writes require a session token and a localhost Host header. Hostnames in `PUBLIC_HOSTS` get a read-only view; there is no way to edit from the internet.
 - The Benzinga stream client is implemented but has not been run against a live subscription. The settings dialog has no field for the key.
 - Headlines are capped at the latest 600 and alerts at 100.
-- `static/app.js` is one 300-line file without a build step or comments.
+- `static/app.js` is one 300-line file without a build step or comments; `workspace.js` wraps its command and view functions rather than editing them.
+- DES, MOST and OMON depend on unofficial Yahoo and Cboe endpoints that can change without notice.
 
 ## Project structure
 
@@ -116,9 +133,11 @@ Feeds, the watchlist and alert rules are edited in the app.
 server.py          HTTP server, feed polling, price/FRED/SEC fetchers, settings, SSE
 brief.py           daily market brief engine and optional analyst note
 schwab.py          owner-only Schwab Trader API client (OAuth, token refresh, quotes)
+market_functions.py data for DES, FA, MOST and OMON (Yahoo session crumb, Cboe, SEC)
 static/
   index.html       single page with all views
   app.js           client logic
+  workspace.js     WS window manager, command grammar, autocomplete and history
   live.js          owner-only live quote overlay
   login.html       owner sign-in (via owner link)
   owner.html       host-only setup: owner link, Schwab connection
