@@ -6,6 +6,8 @@ Signal Terminal is a self-hosted market terminal that runs in one Docker contain
 
 The screenshot shows live public market data from 2 October 2026. The app holds no account or trade data.
 
+**Live:** <https://signal.alenlvovich.com> (read-only public view).
+
 ## What it shows
 
 Each view has a short function code that can be typed into the command line at the top.
@@ -46,6 +48,20 @@ python server.py
 
 Run this way, the server listens on all interfaces, not just localhost, and writes its cache to `./data`.
 
+## Public read-only deployment
+
+[`deploy/compose.public.yaml`](deploy/compose.public.yaml) runs the live copy at signal.alenlvovich.com on a home PC:
+
+1. `signal-puller` (alpine/git) clones this repo into the `signal-repo` volume and runs `git pull` every 60 seconds.
+2. `signal-terminal` (python:3.13-slim) runs `server.py` from that volume on `127.0.0.1:8098` and restarts itself when Python code or `requirements.txt` changes. HTML, JS and CSS changes go live on the next pull.
+3. A Cloudflare Tunnel publishes `localhost:8098` as `signal.alenlvovich.com`.
+
+Pushing to `main` deploys within about a minute. `PUBLIC_HOSTS=signal.alenlvovich.com` lets that hostname read every view; settings, watchlist, alert-rule and brief-refresh writes still return 403 unless the request comes from localhost, and the settings token is never sent to public visitors. No Anthropic key is set on the public copy.
+
+```bash
+docker compose -f deploy/compose.public.yaml up -d
+```
+
 ## Configuration
 
 Set these in the shell or in a `.env` file next to `compose.yaml`. All are optional.
@@ -57,6 +73,7 @@ Set these in the shell or in a `.env` file next to `compose.yaml`. All are optio
 | `BRIEF_MODEL` | `claude-opus-5` | Model used for the analyst note. |
 | `POLL_SECONDS` | `30` | Feed polling interval, minimum 15. Set in `compose.yaml`. |
 | `DATA_DIR` | `/data` in Docker | Cache directory. |
+| `PUBLIC_HOSTS` | unset | Comma-separated hostnames allowed a read-only view from outside localhost, for example `signal.alenlvovich.com`. |
 
 Feeds, the watchlist and alert rules are edited in the app.
 
@@ -77,7 +94,7 @@ Feeds, the watchlist and alert rules are edited in the app.
 - The catalyst calendar includes a hardcoded list of Federal Reserve and BLS dates in `brief.py`, which has to be updated by hand.
 - The article reader fails on paywalled pages and unusual markup.
 - There are no automated tests.
-- Single user, no login. Settings writes require a session token and a localhost Host header, which is enough for local use and not for exposure to the internet.
+- Single user, no login. Settings writes require a session token and a localhost Host header. Hostnames in `PUBLIC_HOSTS` get a read-only view; there is no way to edit from the internet.
 - The Benzinga stream client is implemented but has not been run against a live subscription. The settings dialog has no field for the key.
 - Headlines are capped at the latest 600 and alerts at 100.
 - `static/app.js` is one 300-line file without a build step or comments.
@@ -91,6 +108,8 @@ static/
   index.html       single page with all views
   app.js           client logic
   *.css            styles per view
+deploy/
+  compose.public.yaml  auto-updating public deployment (signal.alenlvovich.com)
 Dockerfile         python:3.13-slim, non-root user
 compose.yaml       localhost-only port, read-only filesystem, cache volume
 requirements.txt

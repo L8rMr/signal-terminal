@@ -9,6 +9,10 @@ import brief as brief_engine
 ROOT = Path(__file__).parent
 INTERVAL = max(15, int(os.getenv('POLL_SECONDS', '30')))
 DATA = Path(os.getenv('DATA_DIR', str(ROOT / 'data')))
+# Hostnames allowed to read the terminal from the internet (e.g. "signal.alenlvovich.com").
+# Visitors on these hosts get a read-only view: every GET works, but settings,
+# watchlist, alert-rule and brief-refresh writes stay limited to localhost.
+PUBLIC_HOSTS = {h.strip().lower() for h in os.getenv('PUBLIC_HOSTS', '').split(',') if h.strip()}
 SEC_USER_AGENT = os.getenv('SEC_USER_AGENT', 'Signal Personal Terminal contact@example.com').strip()
 CATEGORIES = ['Markets', 'Business', 'World', 'Policy', 'Technology']
 DEFAULT_FEEDS = [
@@ -813,14 +817,17 @@ def validated_settings(body):
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*args,**kwargs): super().__init__(*args,directory=str(ROOT/'static'),**kwargs)
-    def local_request(self):
-        try: return urllib.parse.urlparse('http://'+self.headers.get('Host','')).hostname in ('localhost','127.0.0.1','::1')
-        except ValueError: return False
+    def request_host(self):
+        try: return (urllib.parse.urlparse('http://'+self.headers.get('Host','')).hostname or '').lower()
+        except ValueError: return ''
+    def local_request(self): return self.request_host() in ('localhost','127.0.0.1','::1')
+    def public_request(self): return self.request_host() in PUBLIC_HOSTS
     def end_headers(self):
         self.send_header('X-Content-Type-Options','nosniff');self.send_header('Referrer-Policy','no-referrer');self.send_header('X-Frame-Options','DENY');super().end_headers()
     def reply(self,obj,status=200):
         payload=json.dumps(obj).encode();self.send_response(status);self.send_header('Content-Type','application/json');self.send_header('Cache-Control','no-store');self.send_header('Content-Length',str(len(payload)));self.end_headers();self.wfile.write(payload)
     def do_POST(self):
+        if self.public_request(): return self.reply({'error':'This is a read-only public view. Run your own copy to change settings.'},403)
         if not self.local_request() or not secrets.compare_digest(self.headers.get('X-Signal-Token',''),csrf): return self.reply({'error':'Reload Signal before saving settings.'},403)
         if self.headers.get('Content-Type','').split(';')[0]!='application/json': return self.reply({'error':'JSON required.'},415)
         if self.path=='/api/briefing/refresh':
@@ -858,10 +865,11 @@ class Handler(SimpleHTTPRequestHandler):
         except (ValueError,TypeError,KeyError,AttributeError) as exc: self.reply({'error':str(exc)[:200]},400)
         except OSError: self.reply({'error':'Settings could not be saved to disk.'},500)
     def do_GET(self):
-        if not self.local_request(): return self.reply({'error':'Local access only.'},403)
+        public=not self.local_request() and self.public_request()
+        if not self.local_request() and not public: return self.reply({'error':'Local access only.'},403)
         path=urllib.parse.urlparse(self.path).path
         if path=='/api/settings':
-            with condition: self.reply(public_settings()|{'csrf':csrf})
+            with condition: self.reply(public_settings()|({'read_only':True} if public else {'csrf':csrf}))
         elif path=='/api/briefing': self.reply(build_briefing())
         elif path=='/api/markets':
             try: self.reply(market_snapshot())

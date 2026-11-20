@@ -1,5 +1,5 @@
 const $=s=>document.querySelector(s), $$=s=>[...document.querySelectorAll(s)];
-let data={articles:[],sources:[],alerts:[],rates:[],economy:[],stream:{}}, settings={feeds:[],watchlist:[],rules:[],revision:0}, csrf='';
+let data={articles:[],sources:[],alerts:[],rates:[],economy:[],stream:{}}, settings={feeds:[],watchlist:[],rules:[],revision:0}, csrf='', readOnly=false;
 let selected=null, linked='AMEX:SPY', paused=false, pending=null, initialized=false, seenAlerts=Number(localStorage.getItem('signal-alert-seen')||0);
 let edgarData=null;
 let selectedFred=null;
@@ -125,7 +125,7 @@ function renderBriefing(){
 }
 async function loadBriefing(refresh=false,quiet=false){
   if(briefingLoading)return;briefingLoading=true;const before=briefSignature(briefing);if(!quiet)briefButtons().forEach(button=>{button.disabled=true;button.textContent=refresh?'REFRESHING SOURCES…':'BUILDING BRIEF…'});
-  try{const response=await fetch('/api/briefing'+(refresh?'/refresh':''),refresh?{method:'POST',headers:{'Content-Type':'application/json','X-Signal-Token':csrf},body:'{}'}:undefined),value=await response.json();if(!response.ok)throw new Error(value.error||'Brief could not be generated.');if(refresh&&value.refresh)value.refresh.view_changed=before!==briefSignature(value);briefing=value;renderBriefing()}catch(err){if(quiet&&briefing){briefingPoll=setTimeout(()=>loadBriefing(false,true),30000);return}briefButtons().forEach(button=>{button.disabled=false;button.textContent='TRY REFRESH AGAIN'});setBriefText('brief-time','BRIEF UNAVAILABLE');setBriefText('brief-summary',err.message)}finally{briefingLoading=false}
+  try{const response=await fetch('/api/briefing'+(refresh&&!readOnly?'/refresh':''),refresh&&!readOnly?{method:'POST',headers:{'Content-Type':'application/json','X-Signal-Token':csrf},body:'{}'}:undefined),value=await response.json();if(!response.ok)throw new Error(value.error||'Brief could not be generated.');if(refresh&&value.refresh)value.refresh.view_changed=before!==briefSignature(value);briefing=value;renderBriefing()}catch(err){if(quiet&&briefing){briefingPoll=setTimeout(()=>loadBriefing(false,true),30000);return}briefButtons().forEach(button=>{button.disabled=false;button.textContent='TRY REFRESH AGAIN'});setBriefText('brief-time','BRIEF UNAVAILABLE');setBriefText('brief-summary',err.message)}finally{briefingLoading=false}
 }
 briefButtons().forEach(button=>{button.onclick=()=>loadBriefing(true)});
 document.body.addEventListener('click',e=>{const b=e.target.closest('[data-brief-article]');if(b)openReader(b.dataset.briefArticle)});
@@ -226,8 +226,9 @@ async function runEdgar(symbol){
 $('#edgar-search').onsubmit=e=>{e.preventDefault();runEdgar(new FormData(e.target).get('symbol'))};
 $('#edgar-result').onclick=e=>{const b=e.target.closest('[data-research-article]');if(b)openReader(b.dataset.researchArticle)};
 
-async function loadSettings(){const response=await fetch('/api/settings');const value=await response.json();csrf=value.csrf;delete value.csrf;settings=value;if(!settings.watchlist.some(w=>w.symbol===linked)&&settings.watchlist[0])linked=settings.watchlist[0].symbol;renderSettings();renderWatchlist();renderLinkedNews();renderMorning()}
+async function loadSettings(){const response=await fetch('/api/settings');const value=await response.json();csrf=value.csrf||'';readOnly=!!value.read_only;delete value.csrf;delete value.read_only;settings=value;document.body.classList.toggle('read-only',readOnly);if(!settings.watchlist.some(w=>w.symbol===linked)&&settings.watchlist[0])linked=settings.watchlist[0].symbol;renderSettings();renderWatchlist();renderLinkedNews();renderMorning()}
 async function saveSettings(patch){
+  if(readOnly)throw new Error('Read-only public view. Run your own copy from github.com/L8rMr/signal-terminal to edit feeds, watchlists and alerts.');
   const response=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Signal-Token':csrf},body:JSON.stringify({revision:settings.revision,...patch})});const value=await response.json();
   if(!response.ok)throw new Error(value.error||'Could not save settings.');settings=value;renderSettings();renderWatchlist();renderLinkedNews();renderMorning();return value;
 }

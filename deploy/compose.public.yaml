@@ -1,0 +1,65 @@
+# Public deployment: signal.alenlvovich.com, self-hosted and auto-updating from GitHub.
+#
+# "puller" clones this repo into a shared volume and runs `git pull` every 60s.
+# "app" runs server.py straight from that volume and restarts itself within a
+#   minute when a .py file or requirements.txt changes. Static files (HTML/JS/CSS)
+#   are served from disk, so they go live on the next pull with no restart.
+# The Cloudflare Tunnel (lvovichtv) publishes 127.0.0.1:8098 as signal.alenlvovich.com.
+# PUBLIC_HOSTS turns on the read-only public view for that hostname; settings,
+# watchlist and alert edits stay limited to localhost.
+#
+# Start:  docker compose -f deploy/compose.public.yaml up -d
+name: signal-public
+services:
+  puller:
+    image: alpine/git
+    container_name: signal-puller
+    restart: unless-stopped
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      'if [ ! -d /repo/.git ]; then git clone https://github.com/L8rMr/signal-terminal /repo; fi;
+       while true; do git -C /repo pull --ff-only -q || true; sleep 60; done'
+    volumes:
+      - repo:/repo
+
+  app:
+    image: python:3.13-slim
+    container_name: signal-terminal
+    restart: unless-stopped
+    depends_on: [puller]
+    working_dir: /repo
+    environment:
+      DATA_DIR: /data
+      PYTHONUNBUFFERED: "1"
+      POLL_SECONDS: "30"
+      PUBLIC_HOSTS: signal.alenlvovich.com
+      SEC_USER_AGENT: "${SEC_USER_AGENT:-Signal Personal Terminal contact@example.com}"
+      # No ANTHROPIC_API_KEY on purpose: public visitors should never trigger paid calls.
+    entrypoint: ["/bin/sh", "-c"]
+    command: >-
+      'while [ ! -f /repo/server.py ]; do sleep 2; done;
+       sig() { cat /repo/*.py /repo/requirements.txt 2>/dev/null | md5sum; };
+       while true; do
+         pip install -q --no-cache-dir --root-user-action=ignore -r /repo/requirements.txt;
+         S=$(sig); python /repo/server.py & P=$!;
+         while kill -0 $P 2>/dev/null && [ "$(sig)" = "$S" ]; do sleep 60; done;
+         kill $P 2>/dev/null; wait $P 2>/dev/null; echo "code changed, restarting";
+       done'
+    ports:
+      - "127.0.0.1:8098:8080"
+    volumes:
+      - repo:/repo:ro
+      - data:/data
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=2)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 60s
+
+volumes:
+  repo:
+    name: signal-repo
+  data:
+    name: signal-data
