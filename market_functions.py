@@ -70,7 +70,10 @@ def describe(symbol):
     symbol = symbol.upper()
     def fetch():
         modules = 'assetProfile,summaryDetail,defaultKeyStatistics,financialData,price,calendarEvents'
-        data = _yahoo_json(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(symbol)}?modules={modules}')
+        try: data = _yahoo_json(f'https://query2.finance.yahoo.com/v10/finance/quoteSummary/{urllib.parse.quote(symbol)}?modules={modules}')
+        except urllib.error.HTTPError as exc:
+            if exc.code == 404: raise LookupError(f'No security found for {symbol}. Check the ticker.') from None
+            raise
         result = ((data.get('quoteSummary') or {}).get('result') or [None])[0]
         if not result: raise LookupError(f'No profile found for {symbol}.')
         p, sd, ks, fd, pr = (result.get(k) or {} for k in ('assetProfile', 'summaryDetail', 'defaultKeyStatistics', 'financialData', 'price'))
@@ -202,7 +205,7 @@ def _series(taxonomy, tags, kind):
         if not concept: continue
         units = concept.get('units') or {}
         rows = units.get('USD/shares' if kind == 'eps' else 'USD') or []
-        best = {}
+        best, spans = {}, {}
         for r in rows:
             if not isinstance(r.get('val'), (int, float)) or not r.get('end'): continue
             form = str(r.get('form', ''))
@@ -216,11 +219,27 @@ def _series(taxonomy, tags, kind):
                 if not bucket: continue
             key = (bucket, r['end'])
             if key not in best or str(r.get('filed', '')) > str(best[key].get('filed', '')): best[key] = r
+        if kind == 'flow':  # every reported span, including 6- and 9-month year-to-date figures
+            for r in rows:
+                if not isinstance(r.get('val'), (int, float)) or not r.get('start') or not r.get('end'): continue
+                if not str(r.get('form', '')).startswith(('10-K', '10-Q', '20-F', '40-F')): continue
+                k = (r['start'], r['end'])
+                if k not in spans or str(r.get('filed', '')) > str(spans[k].get('filed', '')): spans[k] = r
         for (bucket, end), r in best.items():
             target = annual if bucket == 'annual' else quarter
             target.setdefault(end, r['val'])
         if kind == 'instant':  # quarter-end balances include fiscal year ends too
             for end, v in annual.items(): quarter.setdefault(end, v)
+        if kind == 'flow':
+            # Cash-flow lines are filed year-to-date (3, 6, 9, 12 months from the same
+            # fiscal-year start), so a quarter = this YTD figure minus the previous one.
+            by_start = {}
+            for (start, end), r in spans.items(): by_start.setdefault(start, []).append((end, r['val']))
+            for start, items in by_start.items():
+                items.sort()
+                for (prev_end, prev_val), (end, val) in zip(items, items[1:]):
+                    gap = (datetime.date.fromisoformat(end) - datetime.date.fromisoformat(prev_end)).days
+                    if 80 <= gap <= 100: quarter.setdefault(end, val - prev_val)
     if kind == 'flow':  # derive fiscal Q4 = FY minus the three reported quarters
         for end, total in annual.items():
             fy_end = datetime.date.fromisoformat(end)
